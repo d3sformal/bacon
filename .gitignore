@@ -1,0 +1,10 @@
+**
+!.gitignore
+!ChangeLog.md
+!LICENSE
+!bacon20.cabal
+!src/
+!src/Pdr.hs
+!src/Ic3.hs
+!src/RecMc.hs
+!src/Solver.hs

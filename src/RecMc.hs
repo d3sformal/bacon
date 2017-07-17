@@ -13,6 +13,7 @@ module RecMc where
 
 import Algebra.Lattice
 import Control.Lens hiding (over, under, to, imap)
+import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
@@ -20,7 +21,7 @@ import Control.Monad.Trans.List
 import Control.Monad.Trans.State
 import Data.Either
 import Data.List hiding (insert, init)
-import Data.Map hiding (map, mapMaybe, filter, (\\))
+import Data.Map hiding (map, mapMaybe, filter, (\\), foldr, empty)
 import Data.Maybe
 import Data.Monoid
 import Expression
@@ -87,8 +88,8 @@ pushQuery q = lift $ queries %= (q :)
 popQueries :: (Query e -> RecMc a e Bool) -> RecMc a e ()
 popQueries f = lift . (queries .=) =<< filterM (fmap P.not . f) =<< lift (use queries)
 
-notDone :: RecMc a e Bool
-notDone = lift $ P.not . P.null <$> use queries
+done :: RecMc a e Bool
+done = lift $ P.null <$> use queries
 
 getQuery :: RecMc a e (Query e)
 getQuery = lift $ head <$> use queries
@@ -138,7 +139,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
         pushQuery $ Query d m i p
         safe'
 
-    safe' = notDone >>= \n -> when n $ do
+    safe' = done >>= \d -> unless d $ do
         Query b f i' p' <- getQuery
         log $ "query: " ++ f ++ "@" ++ show b ++ "\n"
 
@@ -161,6 +162,8 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                     admitsWitness     <- realised (head cexu /\ i'')
                     containsViolation <- realised (last cexu /\ complement p'')
                     return $ b' >= b && admitsWitness && containsViolation
+                d' <- done
+                when d' $ throwE . Cex =<< concretise b f cexu
 
             -- Otherwise the property is proven for a restricted space of
             -- possible behaviours (we were using underapproximations as
@@ -239,6 +242,38 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
         i' <- unprime <$> eliminateVars (ls ++ os) (inv /\ en)
         p' <- unprime <$> eliminateVars ls (inv /\ ex)
         return (complement i' \/ p')
+
+    concretise b f tr = head <$> runListT (go tr) where
+        Function _ is ls os _ t _ cs = s ! f
+        vs = is ++ ls ++ os
+
+        go :: [e 'BooleanSort] -> ListT (ExceptT (Cex e) (StateT (RecMcState e) (Solver e))) [(FunctionName, e 'BooleanSort)]
+        go []  = return []
+        go [e] = return [(f, e)]
+        go (e1 : es@(e2 : _)) = liftM ((f, e1) :) $ liftM2 (++) (goNoCall e1 e2 <|> goCall e1 e2) (go es)
+
+        goNoCall :: e 'BooleanSort -> e 'BooleanSort -> ListT (ExceptT a (StateT (RecMcState e) (Solver e))) [(FunctionName, e'BooleanSort)]
+        goNoCall e1 e2 = do
+            let t' = foldr (\(Call _ ph _) t'' -> t'' `substitute` (bottom `for` ph)) t cs
+            guard =<< lift (realised (e1 /\ t' /\ prime e2))
+            return []
+
+        goCall e1 e2 = if b < 1 then empty else do
+            Call f' ph sub <- ListT . return $ cs
+            u <- lift $ getUnderapproximations (b - 1)
+            let t' = t `substitute` (bottom `for` ph)
+                Function _ is' ls' os' en t'' ex cs' = s ! f'
+                vs' = is' ++ ls' ++ os'
+                ibound = meets $ map (\(DynamicallySorted ivs iv) -> inject $ Equals ivs iv (iv `substitute` sub)) is'
+                obound = meets $ map (\(DynamicallySorted ovs ov) -> inject $ Equals ovs ov (ov `substitute` sub)) os'
+                prime' (DynamicallySorted s' v) = DynamicallySorted s' (prime v)
+
+            guard =<< lift (notRealised (e1 /\ t' /\ prime e2))
+
+            i' <- lift $ (en /\) <$> eliminateVars vs (e1 /\ ibound)
+            p' <- lift $ (ex /\) <$> eliminateVars (map prime' vs) (complement (prime e2) /\ obound)
+            Left (Pdr.Cex cex) <- lift . lift . lift $ c vs' i' (transitions t'' cs' u) (complement p')
+            lift $ concretise (b - 1) f' cex
 
     splits as = ListT . return . P.init . tail $ splits' as []
     splits' []           r = [([], reverse r)]

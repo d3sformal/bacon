@@ -3,7 +3,6 @@
            , FlexibleContexts
            , GADTs
            , KindSignatures
-           , MonadComprehensions
            , RankNTypes
            , ScopedTypeVariables
            , TemplateHaskell
@@ -134,6 +133,8 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
     safe = do
         d <- getDepth
 
+        -- Decide bounded-recursion safety of the target function with respect to the given property
+        -- i.e. make a query for `m` with the current call stack bound `d`
         pushQuery $ Query d m i p
         safe'
 
@@ -144,9 +145,14 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
         let fun@(Function _ is ls os _ t _ cs) = s ! f
             vs = is ++ ls ++ os
 
+        -- First try falsifying the property using known executions (function underapproximations)
         tu <- transitions t cs <$> getUnderapproximations (b - 1)
         ru <- lift . lift $ c vs i' tu p'
         case ru of
+
+            -- If falsified, save known execution path to underapproximation
+            -- and remove any query that has been answered (falsified) by this
+            -- negative result
             Left  (Pdr.Cex cexu) -> do
                 newU <- eliminateVars ls =<< abstractionFromCounterexample fun tu cexu i' p'
                 log $ "falsified: yes, new underapproximation of " ++ f ++ "@" ++ show b ++ ": " ++ show newU ++ "\n"
@@ -155,11 +161,20 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                     admitsWitness     <- realised (head cexu /\ i'')
                     containsViolation <- realised (last cexu /\ complement p'')
                     return $ b' >= b && admitsWitness && containsViolation
-            Right (Pdr.Inv _) -> do
+
+            -- Otherwise the property is proven for a restricted space of
+            -- possible behaviours (we were using underapproximations as
+            -- function summaries), hence we try to prove the property in
+            -- general
+            _ -> do
                 log "falsified: no\n"
+
+                -- Try proving the property using known invariants (function overapproximations)
                 to <- transitions t cs <$> getOverapproximations (b - 1)
                 ro <- lift . lift $ c vs i' to p'
                 case ro of
+
+                    -- If proven, strengthen function overapproximation using the invariant
                     Right (Pdr.Inv invo) -> do
                         newO <- eliminateVars ls =<< abstractionFromInvariant fun invo
                         log $ "proven: yes, new overapproximation of " ++ f ++ "@" ++ show b ++ ": " ++ show newO ++ "\n"
@@ -168,9 +183,47 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                             subsumesInitial <- notRealised (complement invo /\ i'')
                             ensuresProperty <- notRealised (invo /\ complement p'')
                             return $ b' <= b && subsumesInitial && ensuresProperty
+
+                    -- Otherwise find a call along the abstract counterexample,
+                    -- whose underapproximation is too strong to witness a real
+                    -- counterexample and whose overapproximation is too weak
+                    -- to prove safety, make a query to refine the abstraction
+                    -- (function summaries)
                     Left  (Pdr.Cex cexo) -> do
                         log "proven: no\n"
-                        mapM_ pushQuery =<< cuts b f cexo i' p'
+                        qs <- runListT $ do
+                            (prefix, suffix) <- splits cexo
+
+                            let e1  = last prefix
+                                e2  = head suffix
+
+                            Call f' ph sub <- ListT . return $ cs
+
+                            -- Select the function being called at this step
+                            guard =<< lift (notRealised (e1 /\ t /\ complement ph /\ prime e2))
+
+                            let upath = foldPath i' (replicate (length prefix - 1) to ++ replicate (length suffix) tu) (complement p')
+                                opath = foldPath i' (replicate (length prefix) to ++ replicate (length suffix - 1) tu) (complement p')
+                                rpath = foldPath i' (replicate (length prefix - 1) to ++ [t `substitute` ((ibound /\ obound) `for` ph)] ++ replicate (length suffix - 1) tu) (complement p')
+
+                                is' = inputs  (s ! f')
+                                os' = outputs (s ! f')
+                                en' = entry   (s ! f')
+                                ex' = exit    (s ! f')
+
+                                ibound = meets $ map (\(DynamicallySorted ivs iv) -> inject $ Equals ivs iv (iv `substitute` sub)) is'
+                                obound = meets $ map (\(DynamicallySorted ovs ov) -> inject $ Equals ovs ov (ov `substitute` sub)) os'
+
+                                ps' = iterate (map (\(DynamicallySorted es e) -> DynamicallySorted es (prime e)) .) id
+
+                            guard =<< lift (notRealised upath) -- Underapproximation too strong to witness error
+                            guard =<< lift (   realised opath) -- Overapproximation too weak to prove safety
+
+                            p'' <- lift $ unprime <$> eliminateVars (concat (take (length prefix + length suffix) (map ($ vs) ps')) \\ (ps' !! length prefix) (is' ++ os')) rpath
+
+                            -- Generate recursive query
+                            return $ Query (b - 1) f' en' (complement ex' \/ complement p'')
+                        mapM_ pushQuery qs
         safe'
 
     realised    e = local $ assert e >> check
@@ -186,6 +239,10 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
         i' <- unprime <$> eliminateVars (ls ++ os) (inv /\ en)
         p' <- unprime <$> eliminateVars ls (inv /\ ex)
         return (complement i' \/ p')
+
+    splits as = ListT . return . P.init . tail $ splits' as []
+    splits' []           r = [([], reverse r)]
+    splits' as@(a : as') r = (reverse r, as) : splits' as' (a : r)
 
     prime :: forall s. e s -> e s
     prime = (`substitute` Substitution (\v -> case match v of { Just (Var n vs) -> Just . inject $ Var (n ++ "'") vs; _ -> Nothing }))
@@ -209,54 +266,10 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
 
     transitions t cs abs = t `substitute` mconcat (map (\(Call f ph sub) -> (abs ! f `substitute` sub) `for` ph) cs)
 
-    cuts b f tr i' p' = runListT [ Query (b - 1) f' i'' p'' | sp <- splits tr, (f', i'', p'') <- call sp ] where
-        splits as = ListT . return . P.init . tail $ splits' as []
-        splits' []           r = [([], reverse r)]
-        splits' as@(a : as') r = (reverse r, as) : splits' as' (a : r)
-
-        call (prefix, suffix) = do
-            let e1  = last prefix
-                e2  = head suffix
-                fun = s ! f
-                vs  = inputs fun ++ locals fun ++ outputs fun
-                t   = transition fun
-                cs  = calls fun
-
-            Call f' ph sub <- ListT . return $ cs
-
-            guard =<< lift (notRealised (e1 /\ t /\ complement ph /\ prime e2))
-
-            u <- lift $ getUnderapproximations (b - 1)
-            o <- lift $ getOverapproximations  (b - 1)
-
-            let tu = transitions t cs u
-                to = transitions t cs o
-
-                upath = foldPath i' (replicate (length prefix - 1) to ++ replicate (length suffix) tu) (complement p')
-                opath = foldPath i' (replicate (length prefix) to ++ replicate (length suffix - 1) tu) (complement p')
-                rpath = foldPath i' (replicate (length prefix - 1) to ++ [t `substitute` ((ibound /\ obound) `for` ph)] ++ replicate (length suffix - 1) tu) (complement p')
-
-                is = inputs  (s ! f')
-                os = outputs (s ! f')
-                en = entry   (s ! f')
-                ex = exit    (s ! f')
-
-                ibound = meets $ map (\(DynamicallySorted ivs iv) -> inject $ Equals ivs iv (iv `substitute` sub)) is
-                obound = meets $ map (\(DynamicallySorted ovs ov) -> inject $ Equals ovs ov (ov `substitute` sub)) os
-
-                ps' = iterate (map (\(DynamicallySorted es e) -> DynamicallySorted es (prime e)) .) id
-
-            guard =<< lift (notRealised upath)
-            guard =<< lift (   realised opath)
-
-            p'' <- lift $ unprime <$> eliminateVars (concat (take (length tr) (map ($ vs) ps')) \\ (ps' !! length prefix) (is ++ os)) rpath
-
-            return (f', en, complement ex \/ complement p'')
-
     fix = do
         d  <- incDepth
 
-        log "push summary:"
+        log "push inductive overapproximations:"
         forM_ [0 .. d - 1] $ \b -> mapM_ (pushInductive b) fs
         log ""
 
@@ -281,6 +294,5 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
     pushInductive b f = do
         r <- isInductive b f
         when r $ do
-            log $ "\t" ++ f ++ "@" ++ show b ++ "\n"
+            log $ "\n\t" ++ f ++ "@" ++ show b ++ " overapproximation inductive\n"
             addOverapproximation (b + 1) f . (! f) =<< getOverapproximations b
-

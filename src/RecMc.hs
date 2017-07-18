@@ -207,7 +207,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
 
                             let upath = foldPath i' (replicate (length prefix - 1) to ++ replicate (length suffix) tu) (complement p')
                                 opath = foldPath i' (replicate (length prefix) to ++ replicate (length suffix - 1) tu) (complement p')
-                                rpath = foldPath i' (replicate (length prefix - 1) to ++ [t `substitute` ((ibound /\ obound) `for` ph)] ++ replicate (length suffix - 1) tu) (complement p')
+                                rpath = foldPath i' (replicate (length prefix - 1) to ++ [t `substitute` mconcat ((ibound /\ obound) `for` ph : map (\(Call _ ph' _) -> bottom `for` ph') cs)] ++ replicate (length suffix - 1) tu) (complement p')
 
                                 is' = inputs  (s ! f')
                                 os' = outputs (s ! f')
@@ -217,7 +217,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                                 ibound = meets $ map (\(DynamicallySorted ivs iv) -> inject $ Equals ivs iv (iv `substitute` sub)) is'
                                 obound = meets $ map (\(DynamicallySorted ovs ov) -> inject $ Equals ovs ov (ov `substitute` sub)) os'
 
-                                ps' = iterate (map (\(DynamicallySorted es e) -> DynamicallySorted es (prime e)) .) id
+                                ps' = iterate (map prime' .) id
 
                             guard =<< lift (notRealised upath) -- Underapproximation too strong to witness error
                             guard =<< lift (   realised opath) -- Overapproximation too weak to prove safety
@@ -235,12 +235,13 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
     abstractionFromCounterexample (Function _ is ls os _ _ _ _) t cs i' p' = do
         let tr  = foldPath i' (take (length cs - 1) $ iterate prime t) (complement p')
             vs  = concat $ zipWith ($) ps' (replicate (length cs - 1) (is ++ ls ++ os))
-            ps' = iterate (map (\(DynamicallySorted es e) -> DynamicallySorted es (prime e)) .) id
+            ps' = iterate (map prime' .) id
         unprime <$> eliminateVars ((vs \\ is) \\ (ps' !! (length cs - 1)) os) tr
 
-    abstractionFromInvariant (Function _ _ ls os en _ ex _) inv = do
-        i' <- unprime <$> eliminateVars (ls ++ os) (inv /\ en)
-        p' <- unprime <$> eliminateVars ls (inv /\ ex)
+    abstractionFromInvariant (Function _ is ls os en t ex _) inv = do
+        en' <- eliminateVars (map prime' (is ++ ls ++ os)) (t /\ en)
+        i'  <- eliminateVars (ls ++ os) (inv /\ en')
+        p'  <- eliminateVars ls (inv /\ ex)
         return (complement i' \/ p')
 
     concretise b f tr = head <$> runListT (go tr) where
@@ -266,7 +267,6 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                 vs' = is' ++ ls' ++ os'
                 ibound = meets $ map (\(DynamicallySorted ivs iv) -> inject $ Equals ivs iv (iv `substitute` sub)) is'
                 obound = meets $ map (\(DynamicallySorted ovs ov) -> inject $ Equals ovs ov (ov `substitute` sub)) os'
-                prime' (DynamicallySorted s' v) = DynamicallySorted s' (prime v)
 
             guard =<< lift (notRealised (e1 /\ t' /\ prime e2))
 
@@ -282,6 +282,9 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
     prime :: forall s. e s -> e s
     prime = (`substitute` Substitution (\v -> case match v of { Just (Var n vs) -> Just . inject $ Var (n ++ "'") vs; _ -> Nothing }))
 
+    prime' :: DynamicallySorted f -> DynamicallySorted f
+    prime' (DynamicallySorted es e) = DynamicallySorted es (prime e)
+
     foldPath :: e 'BooleanSort -> [e 'BooleanSort] -> e 'BooleanSort -> e 'BooleanSort
     foldPath _ [] _ = error "trying to fold an empty path"
     foldPath i' (t : ts) p' = meets $ zipWith ($) (iterate (prime .) id) ((i' /\ t) : ts ++ [p'])
@@ -289,6 +292,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
     unprime :: forall s. e s -> e s
     unprime = (`substitute` Substitution (\v -> case match v of { Just (Var n vs) -> Just . inject $ Var (filter (/= '\'') n) vs; _ -> Nothing }))
 
+    eliminateVars :: forall a. [DynamicallySorted f] -> e 'BooleanSort -> RecMc a e (e 'BooleanSort)
     eliminateVars vs f = do
         let bs = mapMaybe toStaticallySorted vs :: [e 'BooleanSort]
             is = mapMaybe toStaticallySorted vs :: [e 'IntegralSort]

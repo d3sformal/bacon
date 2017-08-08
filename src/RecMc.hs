@@ -207,25 +207,37 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
 
                             let upath = foldPath i' (replicate (length prefix - 1) to ++ replicate (length suffix) tu) (complement p')
                                 opath = foldPath i' (replicate (length prefix) to ++ replicate (length suffix - 1) tu) (complement p')
-                                rpath = foldPath i' (replicate (length prefix - 1) to ++ [t `substitute` mconcat ((ibound /\ obound) `for` ph : map (\(Call _ ph' _) -> bottom `for` ph') cs)] ++ replicate (length suffix - 1) tu) (complement p')
+                                ipath = foldPath i' (replicate (length prefix - 1) to ++ [t `substitute` mconcat ( ibound            `for` ph : map (\(Call _ ph' _) -> bottom `for` ph') cs)]) top
+                                ppath = foldPath i' (replicate (length prefix - 1) to ++ [t `substitute` mconcat ((ibound /\ obound) `for` ph : map (\(Call _ ph' _) -> bottom `for` ph') cs)] ++ replicate (length suffix - 1) tu) (complement p')
 
                                 is' = inputs  (s ! f')
                                 os' = outputs (s ! f')
                                 en' = entry   (s ! f')
                                 ex' = exit    (s ! f')
 
-                                ibound = meets $ map (\(DynamicallySorted ivs iv) -> inject $ Equals ivs iv (iv `substitute` sub)) is'
-                                obound = meets $ map (\(DynamicallySorted ovs ov) -> inject $ Equals ovs ov (ov `substitute` sub)) os'
+                                ibound = meets $ map (\(DynamicallySorted ivs iv) -> inject $ Equals ivs (iv `substitute` callee) (iv `substitute` sub)) is'
+                                obound = meets $ map (\(DynamicallySorted ovs ov) -> inject $ Equals ovs (ov `substitute` callee) (ov `substitute` sub)) os'
+
+                                callee = Substitution $ \v -> do
+                                    Var n s' <- match v
+                                    return . inject $ Var ("callee." ++ n) s'
+
+                                uncallee = Substitution $ \v -> do
+                                    Var n s' <- match v
+                                    case n of
+                                        'c' : 'a' : 'l' : 'l' : 'e' : 'e' : '.' : n' -> return . inject $ Var n' s'
+                                        _ -> Nothing
 
                                 ps' = iterate (map prime' .) id
 
                             guard =<< lift (notRealised upath) -- Underapproximation too strong to witness error
                             guard =<< lift (   realised opath) -- Overapproximation too weak to prove safety
 
-                            p'' <- lift $ unprime <$> eliminateVars (concat (take (length prefix + length suffix) (map ($ vs) ps')) \\ (ps' !! length prefix) (is' ++ os')) rpath
+                            i'' <- lift $ unprime . (`substitute` uncallee) <$> eliminateVars (concat (take (length prefix + length suffix) (map ($ vs) ps'))) ipath
+                            p'' <- lift $ unprime . (`substitute` uncallee) <$> eliminateVars (concat (take (length prefix + length suffix) (map ($ vs) ps'))) ppath
 
                             -- Generate recursive query
-                            return $ Query (b - 1) f' en' (complement ex' \/ complement p'')
+                            return $ Query (b - 1) f' (en' /\ i'') (complement ex' \/ complement p'')
                         mapM_ pushQuery qs
         safe'
 

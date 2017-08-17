@@ -93,8 +93,10 @@ runSolver = Z3.evalZ3 . go where
     go (Free (Eliminate e c)) = do
         g <- Z3.mkGoal True True False
         Z3.goalAssert g =<< toZ3 e
-        qe <- Z3.mkQuantifierEliminationTactic
-        a <- Z3.applyTactic qe g
+        qe  <- Z3.mkTactic "qe"
+        aig <- Z3.mkTactic "aig"
+        t <- Z3.andThenTactic qe aig
+        a <- Z3.applyTactic t g
         go . c =<< fromZ3 =<< Z3.mkAnd =<< Z3.getGoalFormulas =<< Z3.getApplyResultSubgoal a 0
 
 class Monad m => MonadSolver e m | m -> e where

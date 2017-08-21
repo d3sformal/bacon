@@ -64,25 +64,33 @@ logZ3 = logExactly Z3Log
 data Z3Log = Z3Log deriving ( Eq, Typeable )
 
 runSolver :: forall f a. ( IToZ3 f, IFromZ3 f, IShow f ) => (forall t. Typeable t => t -> Bool) -> Solver (IFix f) a -> IO a
-runSolver f = Z3.evalZ3 . go where
+runSolver f = Z3.evalZ3 . flip evalStateT Nothing . go where
     go (Pure a)                  = return a
-    go (Free (Log t m a))        = when (f t) (liftIO . putStrLn . show' $ m) >> go a
-    go (Free (Push a))           = Z3.push  >> go a
-    go (Free (Pop  a))           = Z3.pop 1 >> go a
-    go (Free (Assert p a))       = toZ3 p >>= Z3.assert >> go a
-    go (Free (Check c))          = Z3.check >>= go . c . (== Z3.Sat)
-    go (Free (Model e c))        = do
+    go (Free (Log t m a))        = do
+        when (f t) $ do
+            mp <- get
+            case mp of
+                Just p  -> when (typeOf t /= p) $ (liftIO . putStrLn $ "")
+                Nothing -> return ()
+            put (Just $ typeOf t)
+            liftIO . putStrLn . show' $ m
+        go a
+    go (Free (Push a))           = lift  Z3.push   >> go a
+    go (Free (Pop  a))           = lift (Z3.pop 1) >> go a
+    go (Free (Assert p a))       = lift (toZ3 p >>= Z3.assert) >> go a
+    go (Free (Check c))          = lift Z3.check >>= go . c . (== Z3.Sat)
+    go (Free (Model e c))        = go . c <=< lift $ do
         r <- Z3.getModel
         case r of
             (Z3.Sat, Just m) -> do
                 e' <- toZ3 e
                 v <- Z3.modelEval m e' True
                 case v of
-                    Just v' -> go . c =<< fromZ3 v'
+                    Just v' -> fromZ3 v'
                     Nothing -> error $ "failed valuating " ++ show e
             (Z3.Unsat, _) -> error "failed extracting model from unsatisfiable query"
             _             -> error "failed extracting model"
-    go (Free (UnsatCore e c)) = do
+    go (Free (UnsatCore e c)) = go . c <=< lift $ do
         app  <- Z3.toApp =<< toZ3 e
         name <- Z3.getSymbolString =<< Z3.getDeclName =<< Z3.getAppDecl app
         as <- case name of
@@ -93,26 +101,26 @@ runSolver f = Z3.evalZ3 . go where
         r <- Z3.checkAssumptions ps
         case r of
             Z3.Sat -> error "failed extracting unsat core from satisfiable query"
-            Z3.Unsat -> go . c =<< fromZ3 =<< Z3.mkAnd . map (M.fromList (zip ps as) M.!) =<< Z3.getUnsatCore
+            Z3.Unsat -> fromZ3 =<< Z3.mkAnd . map (M.fromList (zip ps as) M.!) =<< Z3.getUnsatCore
             Z3.Undef -> error "failed extracting unsat core"
     go (Free (Interpolate []  c)) = go (c [])
     go (Free (Interpolate [_] c)) = go (c [])
-    go (Free (Interpolate es  c)) = do
+    go (Free (Interpolate es  c)) = go . c <=< lift $ do
         (e' : es') <- mapM toZ3 es
         q <- foldM (\a g -> Z3.mkAnd . (:[g]) =<< Z3.mkInterpolant a) e' es'
         r <- Z3.local $ Z3.computeInterpolant q =<< Z3.mkParams
         case r of
             Just (Left _) -> error "failed extracting interpolants from satisfiable query"
-            Just (Right is) -> go . c =<< mapM fromZ3 is
+            Just (Right is) -> mapM fromZ3 is
             Nothing -> error "failed extracting interpolants"
-    go (Free (Eliminate e c)) = do
+    go (Free (Eliminate e c)) = go . c <=< lift $ do
         g <- Z3.mkGoal True True False
         Z3.goalAssert g =<< toZ3 e
         qe  <- Z3.mkTactic "qe"
         aig <- Z3.mkTactic "aig"
         t <- Z3.andThenTactic qe aig
         a <- Z3.applyTactic t g
-        go . c =<< fromZ3 =<< Z3.mkAnd =<< Z3.getGoalFormulas =<< Z3.getApplyResultSubgoal a 0
+        fromZ3 =<< Z3.mkAnd =<< Z3.getGoalFormulas =<< Z3.getApplyResultSubgoal a 0
 
     show' (m :: m) = case eqT :: Maybe (m :~: String) of
         Just Refl -> m

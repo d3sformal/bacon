@@ -24,6 +24,7 @@ import Control.Monad.Trans.State
 import Control.Zipper
 import Data.List hiding (and, or, init)
 import Data.Maybe
+import Data.Typeable
 import Expression
 import Prelude hiding (and, or, not, log, init)
 
@@ -71,6 +72,11 @@ getPredicates = lift $ use predicates
 addPredicates :: Eq (e 'BooleanSort) => [e 'BooleanSort] -> Ic3 a e ()
 addPredicates ps = lift $ predicates %= nub . (++ ps)
 
+data Ic3Log = Ic3Log deriving ( Eq, Typeable )
+
+logIc3 :: Typeable b => b -> Bool
+logIc3 = logExactly Ic3Log
+
 ic3 :: forall e f. ( ComplementedLattice (e 'BooleanSort)
                    , MonadSolver e (Solver e)
                    , Show (e 'BooleanSort)
@@ -91,9 +97,9 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
     init :: Ic3 Cex e ()
     init = do
         -- check init /\ not prop
-        log $ "i: " ++ show i
-        log $ "t: " ++ show t
-        log $ "p: " ++ show p
+        log Ic3Log $ "i: " ++ show i
+        log Ic3Log $ "t: " ++ show t
+        log Ic3Log $ "p: " ++ show p
         local $ do
             bs <- enumerate (i /\ complement p)
             unless (null bs) $ throwE (Cex [head bs])
@@ -102,7 +108,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
     bad = do
         -- check post(top frame) /\ not prop
         n  <- getCurrentFrameNum
-        log $ "iter" ++ show n ++ ":"
+        log Ic3Log $ "iter" ++ show n ++ ":"
         bad'
 
     bad' :: Ic3 Cex e ()
@@ -111,19 +117,19 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         n  <- getCurrentFrameNum
         bs <- enumerate (post c /\ complement p)
         unless (null bs) $ do
-            log $ "\tpost(f" ++ show n ++ "): " ++ show (post c) ++ "\n"
+            log Ic3Log $ "\tpost(f" ++ show n ++ "): " ++ show (post c) ++ "\n"
             catchE (mapM_ (block []) bs) $ \(Cex trace) -> do
                 let trace' = zipWith ($) (iterate (prime .) id) (map (/\ t) (P.init trace) ++ [last trace])
-                log "\tabs cex: "
-                mapM_ (log . ("\t\t" ++) . show) trace'
-                log ""
+                log Ic3Log "\tabs cex: "
+                mapM_ (log Ic3Log . ("\t\t" ++) . show) trace'
+                log Ic3Log ""
                 r <- nonEmpty (meets trace')
                 if r then throwE . Cex =<< concretise trace'
                 else do
                     is <- concatMap (literals . unprime) <$> interpolate trace'
-                    log "\trefine: "
-                    mapM_ (log . ("\t\t" ++) . show) is
-                    log ""
+                    log Ic3Log "\trefine: "
+                    mapM_ (log Ic3Log . ("\t\t" ++) . show) is
+                    log Ic3Log ""
                     addPredicates is
                     goToLastFrame
             bad'
@@ -198,7 +204,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
             if bot
             then throwE (Cex $ head pbs : trace')
             else forM_ pbs $ \b' -> do
-                log $ "\t" ++ show n ++ ": pre(b): " ++ show b' ++ "\n"
+                log Ic3Log $ "\t" ++ show n ++ ": pre(b): " ++ show b' ++ "\n"
                 c' <- getCurrentFrame
                 e  <- empty (c' /\ b')
                 unless e $ do
@@ -207,7 +213,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                     goFrameForth
                     c'' <- getPreviousFrame
                     s   <- generalise (c'' \/ post c'') b'
-                    log $ "\tf0" ++ (if n == 0 then "" else if n == 1 then ", f1" else if n == 2 then ", f1, f2" else  ", ..., f" ++ show n) ++ " \\ " ++ show s
+                    log Ic3Log $ "\tf0" ++ (if n == 0 then "" else if n == 1 then ", f1" else if n == 2 then ", f1, f2" else  ", ..., f" ++ show n) ++ " \\ " ++ show s
                     blockHenceBack s
 
     blockHenceBack :: e 'BooleanSort -> Ic3 a e ()
@@ -232,9 +238,9 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
 
         e <- empty (c /\ complement prev) -- we already know that prev is subset of c, check the full equality to detect fixpoint
         when (k > 0) $ do
-            log $ "\tf" ++ show (k - 1) ++ (if e then " = " else " /= ") ++ "f" ++ show k ++ ":"
-            log $ "\t\tf" ++ show (k - 1) ++ ": " ++ show prev
-            log $ "\t\tf" ++ show  k      ++ ": " ++ show c
+            log Ic3Log $ "\tf" ++ show (k - 1) ++ (if e then " = " else " /= ") ++ "f" ++ show k ++ ":"
+            log Ic3Log $ "\t\tf" ++ show (k - 1) ++ ": " ++ show prev
+            log Ic3Log $ "\t\tf" ++ show  k      ++ ": " ++ show c
         when e $ throwE (Inv c)
 
         l <- isLastFrame
@@ -246,7 +252,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                 <=< filterM (   empty . (/\ post c))  -- not reachable in one step from current
                  $  map complement (conjuncts c)      -- blocked in current
             goFrameForth
-            log $ "\tpush(f" ++ show k ++ ", f" ++ show (k + 1) ++ ", " ++ show ind' ++ ")"
+            log Ic3Log $ "\tpush(f" ++ show k ++ ", f" ++ show (k + 1) ++ ", " ++ show ind' ++ ")"
             fix' c ind'
 
     generalise s c = local $ assert s >> unsatcore c

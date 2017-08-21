@@ -41,7 +41,7 @@ inv :: Show (e 'BooleanSort) => Either (Cex e) (Inv e) -> IO ()
 inv (Left  (Cex cs)) = error    . ("failed with counterexample: " ++) . show $ cs
 inv (Right (Inv iv)) = putStrLn . ("succeeded with invariant: "   ++) . show $ iv
 
-main = mapM_ (\(sink, i, p) -> sink =<< runSolver ( recmc ic3 "m91" i p s )) [ (inv, pc .=. cnst 0, not (pc .=. cnst 3) .|. cnst  90 .<. n)
-                                                                             , (cex, pc .=. cnst 0, not (pc .=. cnst 3) .|. cnst 100 .<. n)
-                                                                             , (inv, pc .=. cnst 0 .&. cnst 100 .<. n , not (pc .=. cnst 3) .|. n0 .=. n .+. cnst 10)
-                                                                             , (inv, pc .=. cnst 0 .&. not (cnst 100 .<. n), not (pc .=. cnst 3) .|. n  .=. cnst 91) ]
+main = mapM_ (\(sink, i, p) -> sink =<< runSolver logAll ( recmc ic3 "m91" i p s )) [ (inv, pc .=. cnst 0, not (pc .=. cnst 3) .|. cnst  90 .<. n)
+                                                                                    , (cex, pc .=. cnst 0, not (pc .=. cnst 3) .|. cnst 100 .<. n)
+                                                                                    , (inv, pc .=. cnst 0 .&. cnst 100 .<. n , not (pc .=. cnst 3) .|. n0 .=. n .+. cnst 10)
+                                                                                    , (inv, pc .=. cnst 0 .&. not (cnst 100 .<. n), not (pc .=. cnst 3) .|. n  .=. cnst 91) ]

@@ -24,6 +24,7 @@ import Data.List hiding (insert, init)
 import Data.Map hiding (map, mapMaybe, filter, (\\), foldr, empty)
 import Data.Maybe
 import Data.Monoid
+import Data.Typeable
 import Expression
 import Prelude hiding (init, abs, log)
 
@@ -109,6 +110,11 @@ addUnderapproximation d f u = lift $ underapproximation . ix d . ix f %= (\/ u)
 addOverapproximation :: MeetSemiLattice (e 'BooleanSort) => Int -> FunctionName -> e 'BooleanSort -> RecMc a e ()
 addOverapproximation d f o = lift $ overapproximation . ix d . ix f %= (/\ o)
 
+data RecMcLog = RecMcLog deriving ( Eq, Typeable )
+
+logRecMc :: Typeable b => b -> Bool
+logRecMc = logExactly RecMcLog
+
 recmc :: forall e f. ( ComplementedLattice (e 'BooleanSort)
                      , e ~ IFix f
                      , VarF                       :<: f
@@ -141,7 +147,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
 
     safe' = done >>= \d -> unless d $ do
         Query b f i' p' <- getQuery
-        log $ "query: " ++ f ++ "@" ++ show b ++ "\n"
+        log RecMcLog $ "query: " ++ f ++ "@" ++ show b ++ "\n"
 
         let fun@(Function _ is ls os _ t _ cs) = s ! f
             vs = is ++ ls ++ os
@@ -156,7 +162,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
             -- negative result
             Left  (Pdr.Cex cexu) -> do
                 newU <- eliminateVars ls =<< abstractionFromCounterexample fun tu cexu i' p'
-                log $ "falsified: yes, new underapproximation of " ++ f ++ "@" ++ show b ++ ": " ++ show newU ++ "\n"
+                log RecMcLog $ "falsified: yes, new underapproximation of " ++ f ++ "@" ++ show b ++ ": " ++ show newU ++ "\n"
                 addUnderapproximation b f newU
                 popQueries $ \(Query b' f' i'' p'') -> if f /= f' then return False else do
                     admitsWitness     <- realised (head cexu /\ i'')
@@ -170,7 +176,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
             -- function summaries), hence we try to prove the property in
             -- general
             _ -> do
-                log "falsified: no\n"
+                log RecMcLog "falsified: no\n"
 
                 -- Try proving the property using known invariants (function overapproximations)
                 to <- transitions t cs <$> getOverapproximations (b - 1)
@@ -180,7 +186,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                     -- If proven, strengthen function overapproximation using the invariant
                     Right (Pdr.Inv invo) -> do
                         newO <- eliminateVars ls =<< abstractionFromInvariant fun invo
-                        log $ "proven: yes, new overapproximation of " ++ f ++ "@" ++ show b ++ ": " ++ show newO ++ "\n"
+                        log RecMcLog $ "proven: yes, new overapproximation of " ++ f ++ "@" ++ show b ++ ": " ++ show newO ++ "\n"
                         addOverapproximation b f newO
                         popQueries $ \(Query b' f' i'' p'') -> if f /= f' then return False else do
                             subsumesInitial <- notRealised (complement invo /\ i'')
@@ -193,7 +199,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                     -- to prove safety, make a query to refine the abstraction
                     -- (function summaries)
                     Left  (Pdr.Cex cexo) -> do
-                        log "proven: no\n"
+                        log RecMcLog "proven: no\n"
                         qs <- runListT $ do
                             (prefix, suffix) <- splits cexo
 
@@ -320,15 +326,15 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
     fix = do
         d  <- incDepth
 
-        log "push inductive overapproximations:"
+        log RecMcLog "push inductive overapproximations:"
         forM_ [0 .. d - 1] $ \b -> mapM_ (pushInductive b) fs
-        log ""
+        log RecMcLog ""
 
         r <- P.and <$> mapM (isInductive d) fs
         if r then do
-            log "inductive: yes\n"
+            log RecMcLog "inductive: yes\n"
             throwE . Inv =<< getOverapproximations d
-        else log "inductive: no\n"
+        else log RecMcLog "inductive: no\n"
 
     isInductive b f = do
         (vs, i', t, p') <- inductivityQuery b f
@@ -345,5 +351,5 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
     pushInductive b f = do
         r <- isInductive b f
         when r $ do
-            log $ "\n\t" ++ f ++ "@" ++ show b ++ " overapproximation inductive\n"
+            log RecMcLog $ "\n\t" ++ f ++ "@" ++ show b ++ " overapproximation inductive\n"
             addOverapproximation (b + 1) f . (! f) =<< getOverapproximations b

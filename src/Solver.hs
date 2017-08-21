@@ -6,6 +6,7 @@
            , MultiParamTypeClasses
            , RankNTypes
            , ScopedTypeVariables
+           , TypeOperators
            , TypeSynonymInstances #-}
 
 module Solver where
@@ -17,6 +18,7 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
 import Data.Singletons
+import Data.Typeable
 import Expression
 import Expression.Z3
 import Prelude hiding (log)
@@ -25,7 +27,7 @@ import qualified Data.Map as M
 import qualified Z3.Monad as Z3
 
 data SolverF (e :: Sort -> *) a where
-    Log         :: String -> a -> SolverF e a
+    Log         :: ( Eq a, Typeable a, Show b, Typeable b ) => a -> b -> c -> SolverF e c
     Push        :: a -> SolverF e a
     Pop         :: a -> SolverF e a
     Assert      :: e 'BooleanSort -> a -> SolverF e a
@@ -36,22 +38,35 @@ data SolverF (e :: Sort -> *) a where
     Eliminate   :: e 'BooleanSort -> (e 'BooleanSort -> a) -> SolverF e a
 
 instance Functor (SolverF e) where
-    fmap f (Log s a)          = Log         s  (f a)
-    fmap f (Push a)           = Push           (f a)
-    fmap f (Pop  a)           = Pop            (f a)
-    fmap f (Assert p a)       = Assert      p  (f a)
-    fmap f (Check c)          = Check          (f . c)
-    fmap f (Model e c)        = Model       e  (f . c)
-    fmap f (UnsatCore e c)    = UnsatCore   e  (f . c)
-    fmap f (Interpolate es c) = Interpolate es (f . c)
-    fmap f (Eliminate e c)    = Eliminate   e  (f . c)
+    fmap f (Log t m a)        = Log         t m (f a)
+    fmap f (Push a)           = Push            (f a)
+    fmap f (Pop  a)           = Pop             (f a)
+    fmap f (Assert p a)       = Assert      p   (f a)
+    fmap f (Check c)          = Check           (f . c)
+    fmap f (Model e c)        = Model       e   (f . c)
+    fmap f (UnsatCore e c)    = UnsatCore   e   (f . c)
+    fmap f (Interpolate es c) = Interpolate es  (f . c)
+    fmap f (Eliminate e c)    = Eliminate   e   (f . c)
 
 type Solver e = Free (SolverF e)
 
-runSolver :: forall f a. ( IToZ3 f, IFromZ3 f, IShow f ) => Solver (IFix f) a -> IO a
-runSolver = Z3.evalZ3 . go where
+logAll :: Typeable t => t -> Bool
+logAll = const True
+
+logExactly :: ( Eq a, Typeable a, Typeable b ) => a -> b -> Bool
+logExactly (a :: a) (b :: b) = case eqT :: Maybe (a :~: b) of
+    Just Refl -> a == b
+    Nothing   -> False
+
+logZ3 :: Typeable b => b -> Bool
+logZ3 = logExactly Z3Log
+
+data Z3Log = Z3Log deriving ( Eq, Typeable )
+
+runSolver :: forall f a. ( IToZ3 f, IFromZ3 f, IShow f ) => (forall t. Typeable t => t -> Bool) -> Solver (IFix f) a -> IO a
+runSolver f = Z3.evalZ3 . go where
     go (Pure a)                  = return a
-    go (Free (Log s a))          = liftIO (putStrLn s) >> go a
+    go (Free (Log t m a))        = when (f t) (liftIO . putStrLn . show' $ m) >> go a
     go (Free (Push a))           = Z3.push  >> go a
     go (Free (Pop  a))           = Z3.pop 1 >> go a
     go (Free (Assert p a))       = toZ3 p >>= Z3.assert >> go a
@@ -99,8 +114,12 @@ runSolver = Z3.evalZ3 . go where
         a <- Z3.applyTactic t g
         go . c =<< fromZ3 =<< Z3.mkAnd =<< Z3.getGoalFormulas =<< Z3.getApplyResultSubgoal a 0
 
+    show' (m :: m) = case eqT :: Maybe (m :~: String) of
+        Just Refl -> m
+        Nothing   -> show m
+
 class Monad m => MonadSolver e m | m -> e where
-    log         :: String -> m ()
+    log         :: ( Eq a, Typeable a, Show b, Typeable b ) => a -> b -> m ()
     push        :: m ()
     pop         :: m ()
     assert      :: e 'BooleanSort -> m ()
@@ -111,26 +130,26 @@ class Monad m => MonadSolver e m | m -> e where
     eliminate   :: e 'BooleanSort -> m (e 'BooleanSort)
 
 instance MonadSolver e (Solver e) where
-    log         s  = liftF $ Log s ()
-    push           = liftF $ Push ()
-    pop            = liftF $ Pop  ()
-    assert      p  = liftF $ Assert p ()
-    check          = liftF $ Check id
-    model       e  = liftF $ Model e id
-    unsatcore   e  = liftF $ UnsatCore e id
-    interpolate es = liftF $ Interpolate es id
-    eliminate   e  = liftF $ Eliminate e id
+    log         t m = liftF $ Log t m ()
+    push            = liftF $ Push ()
+    pop             = liftF $ Pop  ()
+    assert      p   = liftF $ Assert p ()
+    check           = liftF $ Check id
+    model       e   = liftF $ Model e id
+    unsatcore   e   = liftF $ UnsatCore e id
+    interpolate es  = liftF $ Interpolate es id
+    eliminate   e   = liftF $ Eliminate e id
 
 instance MonadSolver e (ExceptT a (StateT b (Solver e))) where
-    log         s  = lift . lift $ log s
-    push           = lift . lift $ push
-    pop            = lift . lift $ pop
-    assert      p  = lift . lift $ assert p
-    check          = lift . lift $ check
-    model       e  = lift . lift $ model e
-    unsatcore   e  = lift . lift $ unsatcore e
-    interpolate es = lift . lift $ interpolate es
-    eliminate   e  = lift . lift $ eliminate e
+    log         t m = lift . lift $ log t m
+    push            = lift . lift $ push
+    pop             = lift . lift $ pop
+    assert      p   = lift . lift $ assert p
+    check           = lift . lift $ check
+    model       e   = lift . lift $ model e
+    unsatcore   e   = lift . lift $ unsatcore e
+    interpolate es  = lift . lift $ interpolate es
+    eliminate   e   = lift . lift $ eliminate e
 
 local :: MonadSolver e m => m a -> m a
 local ma = push >> ma >>= \r -> pop >> return r

@@ -11,12 +11,14 @@
 
 module Solver where
 
+import Control.Lens
 import Control.Monad
 import Control.Monad.Free
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
+import Data.List
 import Data.Singletons
 import Data.Typeable
 import Expression
@@ -28,6 +30,8 @@ import qualified Z3.Monad as Z3
 
 data SolverF (e :: Sort -> *) a where
     Log         :: ( Eq a, Typeable a, Show b, Typeable b ) => a -> b -> c -> SolverF e c
+    Indent      :: a -> SolverF e a
+    Unindent    :: a -> SolverF e a
     Push        :: a -> SolverF e a
     Pop         :: a -> SolverF e a
     Assert      :: e 'BooleanSort -> a -> SolverF e a
@@ -39,6 +43,8 @@ data SolverF (e :: Sort -> *) a where
 
 instance Functor (SolverF e) where
     fmap f (Log t m a)        = Log         t m (f a)
+    fmap f (Indent a)         = Indent          (f a)
+    fmap f (Unindent a)       = Unindent        (f a)
     fmap f (Push a)           = Push            (f a)
     fmap f (Pop  a)           = Pop             (f a)
     fmap f (Assert p a)       = Assert      p   (f a)
@@ -64,17 +70,20 @@ logZ3 = logExactly Z3Log
 data Z3Log = Z3Log deriving ( Eq, Typeable )
 
 runSolver :: forall f a. ( IToZ3 f, IFromZ3 f, IShow f ) => (forall t. Typeable t => t -> Bool) -> Solver (IFix f) a -> IO a
-runSolver f = Z3.evalZ3 . flip evalStateT Nothing . go where
+runSolver f = Z3.evalZ3 . flip evalStateT (0, Nothing) . go where
     go (Pure a)                  = return a
     go (Free (Log t m a))        = do
         when (f t) $ do
-            mp <- get
+            i  <- use _1
+            mp <- use _2
             case mp of
                 Just p  -> when (typeOf t /= p) $ (liftIO . putStrLn $ "")
                 Nothing -> return ()
-            put (Just $ typeOf t)
-            liftIO . putStrLn . show' $ m
+            _2 .= Just (typeOf t)
+            liftIO . putStrLn . indent' i . show' $ m
         go a
+    go (Free (Indent a))         = modify (_1 %~ (+        1)) >> go a
+    go (Free (Unindent a))       = modify (_1 %~ (subtract 1)) >> go a 
     go (Free (Push a))           = lift  Z3.push   >> go a
     go (Free (Pop  a))           = lift (Z3.pop 1) >> go a
     go (Free (Assert p a))       = lift (toZ3 p >>= Z3.assert) >> go a
@@ -126,8 +135,20 @@ runSolver f = Z3.evalZ3 . flip evalStateT Nothing . go where
         Just Refl -> m
         Nothing   -> show m
 
+    indent' i s = merge . map indent'' . split $ s where
+        split = split' [] where
+            split' acc [] = [reverse acc]
+            split' acc ('\n' : cs) = reverse acc : split' [] cs
+            split' acc (c    : cs) = split' (c : acc) cs
+        merge = intercalate "\n"
+
+        indent'' "" = ""
+        indent'' s'  = (iterate (('\t' :) .) id !! i) s'
+
 class Monad m => MonadSolver e m | m -> e where
     log         :: ( Eq a, Typeable a, Show b, Typeable b ) => a -> b -> m ()
+    indent      :: m ()
+    unindent    :: m ()
     push        :: m ()
     pop         :: m ()
     assert      :: e 'BooleanSort -> m ()
@@ -139,6 +160,8 @@ class Monad m => MonadSolver e m | m -> e where
 
 instance MonadSolver e (Solver e) where
     log         t m = liftF $ Log t m ()
+    indent          = liftF $ Indent ()
+    unindent        = liftF $ Unindent ()
     push            = liftF $ Push ()
     pop             = liftF $ Pop  ()
     assert      p   = liftF $ Assert p ()
@@ -150,6 +173,8 @@ instance MonadSolver e (Solver e) where
 
 instance MonadSolver e (ExceptT a (StateT b (Solver e))) where
     log         t m = lift . lift $ log t m
+    indent          = lift . lift $ indent
+    unindent        = lift . lift $ unindent
     push            = lift . lift $ push
     pop             = lift . lift $ pop
     assert      p   = lift . lift $ assert p
@@ -158,6 +183,9 @@ instance MonadSolver e (ExceptT a (StateT b (Solver e))) where
     unsatcore   e   = lift . lift $ unsatcore e
     interpolate es  = lift . lift $ interpolate es
     eliminate   e   = lift . lift $ eliminate e
+
+nest :: MonadSolver e m => m a -> m a
+nest ma = indent >> ma >>= \r -> unindent >> return r
 
 local :: MonadSolver e m => m a -> m a
 local ma = push >> ma >>= \r -> pop >> return r

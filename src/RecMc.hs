@@ -154,7 +154,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
 
         -- First try falsifying the property using known executions (function underapproximations)
         tu <- transitions t cs <$> getUnderapproximations (b - 1)
-        ru <- lift . lift $ c vs i' tu p'
+        ru <- lift . lift . nest $ c vs i' tu p'
         case ru of
 
             -- If falsified, save known execution path to underapproximation
@@ -180,7 +180,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
 
                 -- Try proving the property using known invariants (function overapproximations)
                 to <- transitions t cs <$> getOverapproximations (b - 1)
-                ro <- lift . lift $ c vs i' to p'
+                ro <- lift . lift . nest $ c vs i' to p'
                 case ro of
 
                     -- If proven, strengthen function overapproximation using the invariant
@@ -290,7 +290,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
 
             i' <- lift $ (en /\) <$> eliminateVars vs (e1 /\ ibound)
             p' <- lift $ (ex /\) <$> eliminateVars (map prime' vs) (complement (prime e2) /\ obound)
-            Left (Pdr.Cex cex) <- lift . lift . lift $ c vs' i' (transitions t'' cs' u) (complement p')
+            Left (Pdr.Cex cex) <- lift . lift . lift . nest $ c vs' i' (transitions t'' cs' u) (complement p')
             lift $ concretise (b - 1) f' cex
 
     splits as = ListT . return . P.init . tail $ splits' as []
@@ -338,7 +338,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
 
     isInductive b f = do
         (vs, i', t, p') <- inductivityQuery b f
-        isRight <$> (lift . lift $ c vs i' t p')
+        isRight <$> (lift . lift . nest $ c vs i' t p')
 
     inductivityQuery b f = do
         abs <- getOverapproximations b

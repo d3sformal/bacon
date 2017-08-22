@@ -84,11 +84,11 @@ runSolver f = Z3.evalZ3 . flip evalStateT (0, Nothing) . go where
         go a
     go (Free (Indent a))         = modify (_1 %~ (+        1)) >> go a
     go (Free (Unindent a))       = modify (_1 %~ (subtract 1)) >> go a 
-    go (Free (Push a))           = lift  Z3.push   >> go a
-    go (Free (Pop  a))           = lift (Z3.pop 1) >> go a
-    go (Free (Assert p a))       = lift (toZ3 p >>= Z3.assert) >> go a
-    go (Free (Check c))          = lift Z3.check >>= go . c . (== Z3.Sat)
-    go (Free (Model e c))        = go . c <=< lift $ do
+    go (Free (Push a))           = lift  Z3.push   >> go (log Z3Log "(push)" >> a)
+    go (Free (Pop  a))           = lift (Z3.pop 1) >> go (log Z3Log "(pop 1)"  >> a)
+    go (Free (Assert p a))       = lift (toZ3 p >>= Z3.assert) >> go (log Z3Log "(assert ...)" >> a)
+    go (Free (Check c))          = lift Z3.check >>= \a -> go (log Z3Log "(check-sat)" >> c (a == Z3.Sat))
+    go (Free (Model e c))        = go . (\a -> log Z3Log "(get-value (...))" >> c a) <=< lift $ do
         r <- Z3.getModel
         case r of
             (Z3.Sat, Just m) -> do
@@ -99,7 +99,7 @@ runSolver f = Z3.evalZ3 . flip evalStateT (0, Nothing) . go where
                     Nothing -> error $ "failed valuating " ++ show e
             (Z3.Unsat, _) -> error "failed extracting model from unsatisfiable query"
             _             -> error "failed extracting model"
-    go (Free (UnsatCore e c)) = go . c <=< lift $ do
+    go (Free (UnsatCore e c)) = go . (\a -> log Z3Log "(get-unsat-core)" >> c a) <=< lift $ do
         app  <- Z3.toApp =<< toZ3 e
         name <- Z3.getSymbolString =<< Z3.getDeclName =<< Z3.getAppDecl app
         as <- case name of
@@ -112,9 +112,9 @@ runSolver f = Z3.evalZ3 . flip evalStateT (0, Nothing) . go where
             Z3.Sat -> error "failed extracting unsat core from satisfiable query"
             Z3.Unsat -> fromZ3 =<< Z3.mkAnd . map (M.fromList (zip ps as) M.!) =<< Z3.getUnsatCore
             Z3.Undef -> error "failed extracting unsat core"
-    go (Free (Interpolate []  c)) = go (c [])
-    go (Free (Interpolate [_] c)) = go (c [])
-    go (Free (Interpolate es  c)) = go . c <=< lift $ do
+    go (Free (Interpolate []  c)) = go (log Z3Log "(compute-interpolant ...)" >> c [])
+    go (Free (Interpolate [_] c)) = go (log Z3Log "(compute-interpolant ...)" >> c [])
+    go (Free (Interpolate es  c)) = go . (\a -> log Z3Log "(compute-interpolant ...)" >> c a) <=< lift $ do
         (e' : es') <- mapM toZ3 es
         q <- foldM (\a g -> Z3.mkAnd . (:[g]) =<< Z3.mkInterpolant a) e' es'
         r <- Z3.local $ Z3.computeInterpolant q =<< Z3.mkParams
@@ -122,7 +122,7 @@ runSolver f = Z3.evalZ3 . flip evalStateT (0, Nothing) . go where
             Just (Left _) -> error "failed extracting interpolants from satisfiable query"
             Just (Right is) -> mapM fromZ3 is
             Nothing -> error "failed extracting interpolants"
-    go (Free (Eliminate e c)) = go . c <=< lift $ do
+    go (Free (Eliminate e c)) = go . (\a -> log Z3Log "(assert ...)" >> log Z3Log "(apply qe)" >> c a) <=< lift $ do
         g <- Z3.mkGoal True True False
         Z3.goalAssert g =<< toZ3 e
         qe  <- Z3.mkTactic "qe"

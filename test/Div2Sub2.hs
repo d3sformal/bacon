@@ -78,6 +78,6 @@ inv :: Show (e 'BooleanSort) => Either (Cex e) (Inv e) -> IO ()
 inv (Left  (Cex cs)) = error    . ("failed with counterexample: " ++) . show $ cs
 inv (Right (Inv iv)) = putStrLn . ("succeeded with invariant: "   ++) . show $ iv
 
-main = mapM_ (\(sink, p) -> sink =<< runSolver logAll ( recmc ic3 "M" init p s )) [ (inv, not (pc .=. cnst 4) .|. not (m0 .<. cnst 2 .*. m .+. cnst 4))
-                                                                                  , (cex, not (pc .=. cnst 4) .|.      m0 .<. cnst 2 .*. m .+. cnst 4 )
-                                                                                  , (cex, not (pc .=. cnst 4) .|. not (m0 .<. cnst 2 .*. m .+. cnst 5)) ]
+main = mapM_ (\(sink, p) -> sink =<< runSolver defaultLog ( recmc ic3 "M" init p s )) [ (inv, not (pc .=. cnst 4) .|. not (m0 .<. cnst 2 .*. m .+. cnst 4))
+                                                                                      , (cex, not (pc .=. cnst 4) .|.      m0 .<. cnst 2 .*. m .+. cnst 4 )
+                                                                                      , (cex, not (pc .=. cnst 4) .|. not (m0 .<. cnst 2 .*. m .+. cnst 5)) ]

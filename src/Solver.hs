@@ -6,6 +6,7 @@
            , MultiParamTypeClasses
            , RankNTypes
            , ScopedTypeVariables
+           , TemplateHaskell
            , TypeOperators
            , TypeSynonymInstances #-}
 
@@ -69,33 +70,54 @@ logZ3 = logExactly Z3Log
 
 data Z3Log = Z3Log deriving ( Eq, Typeable )
 
+data SolverContext = SolverContext { _indentation :: Int, _lastlog :: Maybe TypeRep, _declarations :: [[Z3.FuncDecl]] }
+
+makeLenses ''SolverContext
+
 runSolver :: forall f a. ( IToZ3 f, IFromZ3 f, IShow f ) => (forall t. Typeable t => t -> Bool) -> Solver (IFix f) a -> IO a
-runSolver f = Z3.evalZ3 . flip evalStateT (0, Nothing) . go where
+runSolver f = Z3.evalZ3 . flip evalStateT (SolverContext 0 Nothing []) . go . (log Z3Log "(set-option :produce-unsat-cores true)" >>) where
     go (Pure a)                  = return a
     go (Free (Log t m a))        = do
         when (f t) $ do
-            i  <- use _1
-            mp <- use _2
+            i  <- use indentation
+            mp <- use lastlog
             case mp of
-                Just p  -> when (typeOf t /= p) $ (liftIO . putStrLn $ "")
+                Just p  -> when (typeOf t /= p) (liftIO . putStrLn $ "")
                 Nothing -> return ()
-            _2 .= Just (typeOf t)
+            lastlog .= Just (typeOf t)
             liftIO . putStrLn . indent' i . show' $ m
         go a
-    go (Free (Indent a))         = modify (_1 %~ (+        1)) >> go a
-    go (Free (Unindent a))       = modify (_1 %~ (subtract 1)) >> go a 
-    go (Free (Push a))           = lift  Z3.push   >> go (log Z3Log "(push)" >> a)
-    go (Free (Pop  a))           = lift (Z3.pop 1) >> go (log Z3Log "(pop 1)"  >> a)
-    go (Free (Assert p a))       = lift (toZ3 p >>= Z3.assert) >> go (log Z3Log "(assert ...)" >> a)
+    go (Free (Indent a))         = modify (indentation %~ (+ 1))      >> go a
+    go (Free (Unindent a))       = modify (indentation %~ subtract 1) >> go a
+    go (Free (Push a))           = lift  Z3.push   >> modify (declarations %~ ([] :)) >> go (log Z3Log "(push)" >> a)
+    go (Free (Pop  a))           = lift (Z3.pop 1) >> modify (declarations %~ tail)   >> go (log Z3Log "(pop 1)"  >> a)
+    go (Free (Assert p a))       = go
+                                 . (\(s, ds) -> mapM_ (log Z3Log . snd) ds >> log Z3Log ("(assert " ++ s ++ ")") >> a)
+                                 <=< (\(s, ds) -> concat <$> use declarations >>= \ds' -> let ds'' = filter ((`notElem` ds') . fst) ds in modify (declarations . ix 0 %~ (++ map fst ds'')) >> return (s, ds''))
+                                 <=< lift $ do
+        q <- toZ3 p
+        Z3.assert q
+        s   <- Z3.astToString q
+        ds  <- collect q
+        dss <- mapM Z3.funcDeclToString ds
+        return (s, zip ds dss)
     go (Free (Check c))          = lift Z3.check >>= \a -> go (log Z3Log "(check-sat)" >> c (a == Z3.Sat))
-    go (Free (Model e c))        = go . (\a -> log Z3Log "(get-value (...))" >> c a) <=< lift $ do
+    go (Free (Model e c))        = go
+                                 . (\(n, m, ds) -> mapM_ (log Z3Log . snd) ds >> log Z3Log ("(get-value (" ++ n ++ "))") >> c m)
+                                 <=< (\(n, m, ds) -> concat <$> use declarations >>= \ds' -> let ds'' = filter ((`notElem` ds') . fst) ds in modify (declarations . ix 0 %~ (++ map fst ds'')) >> return (n, m, ds''))
+                                 <=< lift $ do
         r <- Z3.getModel
         case r of
             (Z3.Sat, Just m) -> do
                 e' <- toZ3 e
                 v <- Z3.modelEval m e' True
                 case v of
-                    Just v' -> fromZ3 v'
+                    Just v' -> do
+                        vn  <- Z3.astToString e'
+                        vm  <- fromZ3 v'
+                        ds  <- collect e'
+                        dss <- mapM Z3.funcDeclToString ds
+                        return (vn, vm, zip ds dss)
                     Nothing -> error $ "failed valuating " ++ show e
             (Z3.Unsat, _) -> error "failed extracting model from unsatisfiable query"
             _             -> error "failed extracting model"
@@ -112,30 +134,63 @@ runSolver f = Z3.evalZ3 . flip evalStateT (0, Nothing) . go where
             Z3.Sat -> error "failed extracting unsat core from satisfiable query"
             Z3.Unsat -> fromZ3 =<< Z3.mkAnd . map (M.fromList (zip ps as) M.!) =<< Z3.getUnsatCore
             Z3.Undef -> error "failed extracting unsat core"
-    go (Free (Interpolate []  c)) = go (log Z3Log "(compute-interpolant ...)" >> c [])
-    go (Free (Interpolate [_] c)) = go (log Z3Log "(compute-interpolant ...)" >> c [])
-    go (Free (Interpolate es  c)) = go . (\a -> log Z3Log "(compute-interpolant ...)" >> c a) <=< lift $ do
+    go (Free (Interpolate []  c)) = go (log Z3Log "; (compute-interpolant )" >> c [])
+    go (Free (Interpolate [_] c)) = go (log Z3Log "; (compute-interpolant _)" >> c [])
+    go (Free (Interpolate es  c)) = go
+                                  . (\(s, i, ds) -> log Z3Log "(push)" >> mapM_ (log Z3Log . snd) ds >> log Z3Log ("(compute-interpolant " ++ s ++ ")") >> log Z3Log "(pop 1)" >> c i)
+                                  <=< (\(s, i, ds) -> concat <$> use declarations >>= \ds' -> let ds'' = filter ((`notElem` ds') . fst) ds in modify (declarations . ix 0 %~ (++ map fst ds'')) >> return (s, i, ds''))
+                                  <=< lift $ do
         (e' : es') <- mapM toZ3 es
         q <- foldM (\a g -> Z3.mkAnd . (:[g]) =<< Z3.mkInterpolant a) e' es'
         r <- Z3.local $ Z3.computeInterpolant q =<< Z3.mkParams
         case r of
             Just (Left _) -> error "failed extracting interpolants from satisfiable query"
-            Just (Right is) -> mapM fromZ3 is
+            Just (Right is) -> do
+                qs  <- Z3.astToString q
+                qi  <- mapM fromZ3 is
+                ds  <- collect q
+                dss <- mapM Z3.funcDeclToString ds
+                return (qs, qi, zip ds dss)
             Nothing -> error "failed extracting interpolants"
-    go (Free (Eliminate e c)) = go . (\a -> log Z3Log "(assert ...)" >> log Z3Log "(apply qe)" >> c a) <=< lift $ do
+    go (Free (Eliminate e c)) = go
+                              . (\(a, s, ds) -> log Z3Log "(push)" >> mapM_ (log Z3Log . snd) ds >> log Z3Log ("(assert " ++ s ++ ")") >> log Z3Log "(apply (then qe aig))" >> log Z3Log "(pop 1)" >> c a)
+                              <=< (\(a, s, ds) -> concat <$> use declarations >>= \ds' -> let ds'' = filter ((`notElem` ds') . fst) ds in modify (declarations . ix 0 %~ (++ map fst ds'')) >> return (a, s, ds''))
+                              <=< lift $ do
         g <- Z3.mkGoal True True False
-        Z3.goalAssert g =<< toZ3 e
+        q <- toZ3 e
+        Z3.goalAssert g q
         qe  <- Z3.mkTactic "qe"
         aig <- Z3.mkTactic "aig"
         t <- Z3.andThenTactic qe aig
         a <- Z3.applyTactic t g
-        fromZ3 =<< Z3.mkAnd =<< Z3.getGoalFormulas =<< Z3.getApplyResultSubgoal a 0
+        r <- fromZ3 =<< Z3.mkAnd =<< Z3.getGoalFormulas =<< Z3.getApplyResultSubgoal a 0
+        s <- Z3.astToString q
+        ds <- collect q
+        dss <- mapM Z3.funcDeclToString ds
+        return (r, s, zip ds dss)
+
+    collect = fmap M.keys . flip execStateT M.empty . collect'
+    collect' a = do
+        k <- lift (Z3.getAstKind a)
+        case k of
+            Z3.Z3_VAR_AST -> return ()
+            Z3.Z3_NUMERAL_AST -> return ()
+            Z3.Z3_APP_AST -> do
+                app <- lift (Z3.toApp a)
+                d   <- lift (Z3.getAppDecl app)
+                n   <- lift (Z3.getSymbolString =<< Z3.getDeclName d)
+                mapM_ collect' =<< lift (Z3.getAppArgs app)
+                modify (if builtin n then id else M.insert d True)
+            Z3.Z3_QUANTIFIER_AST -> collect' =<< lift (Z3.getQuantifierBody a)
+            _ -> error "unknown kind of expression being logged"
+
+    builtin = (`elem` ["=", "<", "<=", ">=", "not", "and", "or", "iff", "true", "false", "+", "-", "*", "select", "store", "interp"])
 
     show' (m :: m) = case eqT :: Maybe (m :~: String) of
         Just Refl -> m
         Nothing   -> show m
 
-    indent' i s = merge . map indent'' . split $ s where
+    indent' i = merge . map indent'' . split where
         split = split' [] where
             split' acc [] = [reverse acc]
             split' acc ('\n' : cs) = reverse acc : split' [] cs

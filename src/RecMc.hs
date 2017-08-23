@@ -269,7 +269,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
         go :: [e 'BooleanSort] -> ListT (ExceptT (Cex e) (StateT (RecMcState e) (Solver e))) [(FunctionName, e 'BooleanSort)]
         go []  = return []
         go [e] = return [(f, e)]
-        go (e1 : es@(e2 : _)) = liftM ((f, e1) :) $ liftM2 (++) (goNoCall e1 e2 <|> goCall e1 e2) (go es)
+        go (e1 : es@(e2 : _)) = ((f, e1) :) <$> liftM2 (++) (goNoCall e1 e2 <|> goCall e1 e2) (go es)
 
         goNoCall :: e 'BooleanSort -> e 'BooleanSort -> ListT (ExceptT a (StateT (RecMcState e) (Solver e))) [(FunctionName, e'BooleanSort)]
         goNoCall e1 e2 = do

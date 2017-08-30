@@ -11,6 +11,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Pdr,
                        Ic3,
+                       QIc3,
                        RecMc,
                        Solver
   build-depends:       base >=4.9 && <4.10,
@@ -56,4 +57,14 @@ test-suite m91
                        expressions
   hs-source-dirs:      test
   main-is:             M91.hs
+  default-language:    Haskell2010
+
+test-suite duplicateentry
+  type:                exitcode-stdio-1.0
+  build-depends:       bacon20,
+                       base,
+                       containers,
+                       expressions
+  hs-source-dirs:      test
+  main-is:             DuplicateEntry.hs
   default-language:    Haskell2010

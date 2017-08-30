@@ -6,9 +6,11 @@
 !src/
 !src/Pdr.hs
 !src/Ic3.hs
+!src/QIc3.hs
 !src/RecMc.hs
 !src/Solver.hs
 !test/
 !test/CountTo5.hs
 !test/Div2Sub2.hs
 !test/M91.hs
+!test/DuplicateEntry.hs

@@ -68,3 +68,13 @@ test-suite duplicateentry
   hs-source-dirs:      test
   main-is:             DuplicateEntry.hs
   default-language:    Haskell2010
+
+test-suite ackermann
+  type:                exitcode-stdio-1.0
+  build-depends:       bacon20,
+                       base,
+                       containers,
+                       expressions
+  hs-source-dirs:      test
+  main-is:             Ackermann.hs
+  default-language:    Haskell2010

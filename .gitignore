@@ -14,3 +14,4 @@
 !test/Div2Sub2.hs
 !test/M91.hs
 !test/DuplicateEntry.hs
+!test/Ackermann.hs

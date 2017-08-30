@@ -7,7 +7,6 @@ import Expression
 import QIc3 -- Make sure to use Quantifier-aware Ic3
 import Pdr
 import Solver
-import Prelude hiding (not, init)
 
 -- All variables used in the system to be analyzed by IC3
 vs  = map (DynamicallySorted SIntegralSort) [pc, i, j, v] ++ [DynamicallySorted (SArraySort SIntegralSort SIntegralSort) a]
@@ -27,11 +26,9 @@ a   = var "a"   :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 a'  = var "a'"  :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 
 -- The transition relation (Total except for initial conditions (i /= j, i >= 0, j >= 0)
-t = pc .=. cnst 0 .&. pc' .=. cnst 1 .&. not (i .=. j) .&. not (i .<. cnst 0) .&. not (j .<. cnst 0) .&. i' .=. i .&. j' .=. j .&. v' .=. select a i .&. a' .=. a .|.
+t = pc .=. cnst 0 .&. pc' .=. cnst 1 .&. i ./=. j .&. i .>=. cnst 0 .&. j .>=. cnst 0 .&. i' .=. i .&. j' .=. j .&. v' .=. select a i .&. a' .=. a .|.
     pc .=. cnst 1 .&. pc' .=. cnst 2 .&. i' .=. i .&. j' .=. j .&. v' .=. v .&. a' .=. store a j v .|.
     pc .=. cnst 2 .&. pc' .=. cnst 2 .&. i' .=. i .&. j' .=. j .&. v' .=. v .&. a' .=. a
-
-init = pc .=. cnst 0
 
 -- Check expected outcome
 cex :: Show (e 'BooleanSort) => Either (Cex e) (Inv e) -> IO ()
@@ -48,5 +45,5 @@ k = var "k"
 l = var "l"
 
 -- Run ic3 with different properties, check whether ic3 responds with an expected Cex or Inv
-main = mapM_ (\(sink, p) -> sink =<< runSolver logAll ( ic3 vs init t p )) [ (inv, exists [k, l] (not (k .=. l) .&.       select a k .=. select a l ))
-                                                                           , (cex, forall [k, l] (not (k .=. l) .->. not (select a k .=. select a l))) ]
+main = mapM_ (\(sink, p) -> sink =<< runSolver logAll ( ic3 vs (pc .=. cnst 0) t p )) [ (inv, pc .=. cnst 2 .->. exists [k, l] (k ./=. l .&.  select a k .=.  select a l))
+                                                                                      , (cex, pc .=. cnst 2 .->. forall [k, l] (k ./=. l .->. select a k ./=. select a l)) ]

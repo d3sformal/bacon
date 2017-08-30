@@ -7,7 +7,6 @@ import Expression
 import Ic3
 import RecMc
 import Solver
-import Prelude hiding (and, or, not, init)
 
 pc  = var "pc"  :: ALia 'IntegralSort
 pc' = var "pc'" :: ALia 'IntegralSort
@@ -35,8 +34,8 @@ t0' = var "t0'" :: ALia 'IntegralSort
 
 tc1 = var "callT" :: ALia 'BooleanSort
 
-tt = pc .=. cnst 0 .&. pc' .=. cnst 1 .&. t0' .=. t0 .&. t' .=. t .&. t0 .=. t .&.      cnst 0 .<. t  .|.
-     pc .=. cnst 0 .&. pc' .=. cnst 4 .&. t0' .=. t0 .&. t' .=. t .&. t0 .=. t .&. not (cnst 0 .<. t) .|.
+tt = pc .=. cnst 0 .&. pc' .=. cnst 1 .&. t0' .=. t0 .&. t' .=. t .&. t0 .=. t .&. cnst 0 .<.  t .|.
+     pc .=. cnst 0 .&. pc' .=. cnst 4 .&. t0' .=. t0 .&. t' .=. t .&. t0 .=. t .&. cnst 0 .>=. t .|.
      pc .=. cnst 1 .&. pc' .=. cnst 2 .&. t0' .=. t0 .&. t' .=. t .+. cnst (-2) .|.
      pc .=. cnst 2 .&. pc' .=. cnst 3 .&. t0' .=. t0 .&. tc1 .|.
      pc .=. cnst 3 .&. pc' .=. cnst 4 .&. t0' .=. t0 .&. t' .=. t .+. cnst 1 .|.
@@ -64,8 +63,6 @@ mt = pc .=. cnst 0 .&. pc' .=. cnst 1 .&. m0' .=. m0 .&. m' .=. m .&. m0 .=. m .
 mcs = [ Call "T" mc1 (m `for` t0 <> m' `for` t)
       , Call "D" mc2 (m `for` d0 <> m' `for` d) ]
 
-init = pc .=. cnst 0
-
 s = fromList . map (\f@(Function n _ _ _ _ _ _ _) -> (n, f)) $ [ Function "M" mis mls mos (pc .=. cnst 0) mt (pc .=. cnst 4) mcs
                                                                , Function "T" tis tls tos (pc .=. cnst 0) tt (pc .=. cnst 4) tcs
                                                                , Function "D" dis dls dos (pc .=. cnst 0) dt (pc .=. cnst 1) dcs ]
@@ -78,6 +75,6 @@ inv :: Show (e 'BooleanSort) => Either (Cex e) (Inv e) -> IO ()
 inv (Left  (Cex cs)) = error    . ("failed with counterexample: " ++) . show $ cs
 inv (Right (Inv iv)) = putStrLn . ("succeeded with invariant: "   ++) . show $ iv
 
-main = mapM_ (\(sink, p) -> sink =<< runSolver defaultLog ( recmc ic3 "M" init p s )) [ (inv, pc .=. cnst 4 .->. not (m0 .<. cnst 2 .*. m .+. cnst 4))
-                                                                                      , (cex, pc .=. cnst 4 .->.      m0 .<. cnst 2 .*. m .+. cnst 4 )
-                                                                                      , (cex, pc .=. cnst 4 .->. not (m0 .<. cnst 2 .*. m .+. cnst 5)) ]
+main = mapM_ (\(sink, p) -> sink =<< runSolver defaultLog ( recmc ic3 "M" (pc .=. cnst 0) p s )) [ (inv, pc .=. cnst 4 .->. m0 .>=. cnst 2 .*. m .+. cnst 4)
+                                                                                                 , (cex, pc .=. cnst 4 .->. m0 .<.  cnst 2 .*. m .+. cnst 4)
+                                                                                                 , (cex, pc .=. cnst 4 .->. m0 .>=. cnst 2 .*. m .+. cnst 5) ]

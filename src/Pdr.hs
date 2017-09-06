@@ -13,7 +13,7 @@ module Pdr where
 import Control.Monad
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
-import Expression
+import Data.Expression
 import Prelude hiding (and, or, not, log, init)
 
 import Solver

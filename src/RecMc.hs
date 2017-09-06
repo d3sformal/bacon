@@ -20,12 +20,12 @@ import Control.Monad.Trans.Except
 import Control.Monad.Trans.List
 import Control.Monad.Trans.State
 import Data.Either
+import Data.Expression
 import Data.List hiding (insert, init)
 import Data.Map hiding (map, mapMaybe, filter, (\\), foldr, empty)
 import Data.Maybe
 import Data.Monoid
 import Data.Typeable
-import Expression
 import Prelude hiding (init, abs, log)
 
 import qualified Prelude as P

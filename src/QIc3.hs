@@ -22,10 +22,10 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
 import Control.Zipper
+import Data.Expression
 import Data.List hiding (and, or, init)
 import Data.Maybe
 import Data.Typeable
-import Expression
 import Prelude hiding (and, or, not, log, init)
 
 import Pdr
@@ -66,28 +66,13 @@ modifyFrame f = lift $ frames . focus %= f
 getCurrentFrameNum :: Ic3 a e Int
 getCurrentFrameNum = lift $ subtract 1 . uncurry (-) . (teeth &&& tooth) <$> use frames
 
-getPredicates :: ( UniversalF   'BooleanSort  :<: f
-                 , ExistentialF 'BooleanSort  :<: f
-                 , UniversalF   'IntegralSort :<: f
-                 , ExistentialF 'IntegralSort :<: f
-                 , IFoldable f
-                 , e ~ IFix f ) => Ic3 a e ([e 'BooleanSort], [e 'BooleanSort])
+getPredicates :: ( IFoldable f, MaybeQuantified f, e ~ IFix f ) => Ic3 a e ([e 'BooleanSort], [e 'BooleanSort])
 getPredicates = lift $ partition isQuantifierFree <$> use predicates
 
-getQuantifierFreePredicates :: ( UniversalF   'BooleanSort  :<: f
-                               , ExistentialF 'BooleanSort  :<: f
-                               , UniversalF   'IntegralSort :<: f
-                               , ExistentialF 'IntegralSort :<: f
-                               , IFoldable f
-                               , e ~ IFix f ) => Ic3 a e [e 'BooleanSort]
+getQuantifierFreePredicates :: ( IFoldable f, MaybeQuantified f, e ~ IFix f ) => Ic3 a e [e 'BooleanSort]
 getQuantifierFreePredicates = fst <$> getPredicates
 
-getQuantifiedPredicates :: ( UniversalF   'BooleanSort  :<: f
-                           , ExistentialF 'BooleanSort  :<: f
-                           , UniversalF   'IntegralSort :<: f
-                           , ExistentialF 'IntegralSort :<: f
-                           , IFoldable f
-                           , e ~ IFix f ) => Ic3 a e [e 'BooleanSort]
+getQuantifiedPredicates :: ( IFoldable f, MaybeQuantified f, e ~ IFix f ) => Ic3 a e [e 'BooleanSort]
 getQuantifiedPredicates = snd <$> getPredicates
 
 addPredicates :: Eq (e 'BooleanSort) => [e 'BooleanSort] -> Ic3 a e ()
@@ -107,10 +92,7 @@ ic3 :: forall e f. ( ComplementedLattice (e 'BooleanSort)
                    , EqualityF :<: f
                    , ConjunctionF :<: f
                    , DisjunctionF :<: f
-                   , ExistentialF 'BooleanSort :<: f
-                   , UniversalF   'BooleanSort :<: f
-                   , ExistentialF 'IntegralSort :<: f
-                   , UniversalF   'IntegralSort :<: f
+                   , MaybeQuantified f
                    , IEq1 f
                    , IShow f
                    , IFoldable f )

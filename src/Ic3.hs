@@ -22,10 +22,10 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
 import Control.Zipper
+import Data.Expression
 import Data.List hiding (and, or, init)
 import Data.Maybe
 import Data.Typeable
-import Expression
 import Prelude hiding (and, or, not, log, init)
 
 import Pdr

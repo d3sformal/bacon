@@ -1,8 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 
+import Data.Expression
 import Data.Map (singleton)
 import Data.Monoid
-import Expression
 import Ic3
 import RecMc
 import Solver

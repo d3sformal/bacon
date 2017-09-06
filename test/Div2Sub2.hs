@@ -1,9 +1,9 @@
 {-# LANGUAGE DataKinds
            , FlexibleContexts #-}
 
+import Data.Expression
 import Data.Map hiding (map)
 import Data.Monoid
-import Expression
 import Ic3
 import RecMc
 import Solver

@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds
            , FlexibleContexts #-}
 
-import Expression
+import Data.Expression
 import Ic3
 import Pdr
 import Solver

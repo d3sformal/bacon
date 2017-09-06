@@ -3,7 +3,7 @@
            , RankNTypes
            , TypeOperators #-}
 
-import Expression
+import Data.Expression
 import QIc3 -- Make sure to use Quantifier-aware Ic3
 import Pdr
 import Solver

@@ -19,11 +19,11 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
+import Data.Expression
+import Data.Expression.Z3
 import Data.List
 import Data.Singletons
 import Data.Typeable
-import Expression
-import Expression.Z3
 import Prelude hiding (log)
 
 import qualified Data.Map as M

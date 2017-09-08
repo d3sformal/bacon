@@ -22,7 +22,7 @@ import Control.Monad.Trans.State
 import Data.Either
 import Data.Expression
 import Data.List hiding (insert, init)
-import Data.Map hiding (map, mapMaybe, filter, (\\), foldr, empty)
+import Data.Map hiding (map, take, mapMaybe, filter, (\\), foldr, empty)
 import Data.Maybe
 import Data.Monoid
 import Data.Typeable

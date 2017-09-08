@@ -14,14 +14,14 @@ library
                        QIc3,
                        RecMc,
                        Solver
-  build-depends:       base >=4.9 && <4.10,
+  build-depends:       base >=4.9 && <4.11,
                        containers >=0.5 && <0.6,
                        expressions >=0.1 && <0.2,
                        expressions-z3 >=0.1 && <0.2,
                        free >=4.12 && <4.13,
                        lattices >=1.6 && <1.7,
                        lens >=4.15 && <4.16,
-                       singletons >=2.2 && <2.3,
+                       singletons >=2.2 && <2.4,
                        transformers >=0.5 && <0.6,
                        z3 >=4.1 && <4.2,
                        zippers >=0.2 && <0.3

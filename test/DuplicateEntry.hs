@@ -26,9 +26,9 @@ a   = var "a"   :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 a'  = var "a'"  :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 
 -- The transition relation (Total except for initial conditions (i /= j, i >= 0, j >= 0)
-t = pc .=. cnst 0 .&. pc' .=. cnst 1 .&. i ./=. j .&. i .>=. cnst 0 .&. j .>=. cnst 0 .&. i' .=. i .&. j' .=. j .&. v' .=. select a i .&. a' .=. a .|.
-    pc .=. cnst 1 .&. pc' .=. cnst 2 .&. i' .=. i .&. j' .=. j .&. v' .=. v .&. a' .=. store a j v .|.
-    pc .=. cnst 2 .&. pc' .=. cnst 2 .&. i' .=. i .&. j' .=. j .&. v' .=. v .&. a' .=. a
+t = pc .=. 0 .&. pc' .=. 1 .&. i ./=. j .&. i .>=. 0 .&. j .>=. 0 .&. i' .=. i .&. j' .=. j .&. v' .=. select a i .&. a' .=. a .|.
+    pc .=. 1 .&. pc' .=. 2 .&. i' .=. i .&. j' .=. j .&. v' .=. v .&. a' .=. store a j v .|.
+    pc .=. 2 .&. pc' .=. 2 .&. i' .=. i .&. j' .=. j .&. v' .=. v .&. a' .=. a
 
 -- Check expected outcome
 cex :: Show (e 'BooleanSort) => Either (Cex e) (Inv e) -> IO ()
@@ -45,5 +45,5 @@ k = var "k"
 l = var "l"
 
 -- Run ic3 with different properties, check whether ic3 responds with an expected Cex or Inv
-main = mapM_ (\(sink, p) -> sink =<< runSolver logAll ( ic3 vs (pc .=. cnst 0) t p )) [ (inv, pc .=. cnst 2 .->. exists [k, l] (k ./=. l .&.  select a k .=.  select a l))
-                                                                                      , (cex, pc .=. cnst 2 .->. forall [k, l] (k ./=. l .->. select a k ./=. select a l)) ]
+main = mapM_ (\(sink, p) -> sink =<< runSolver logAll ( ic3 vs (pc .=. 0) t p )) [ (inv, pc .=. 2 .->. exists [k, l] (k ./=. l .&.  select a k .=.  select a l))
+                                                                                      , (cex, pc .=. 2 .->. forall [k, l] (k ./=. l .->. select a k ./=. select a l)) ]

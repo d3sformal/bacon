@@ -129,8 +129,10 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                     is <- concatMap (literals . unprime) <$> interpolate trace'
                     log Ic3Log "\trefine: "
                     mapM_ (log Ic3Log . ("\t\t" ++) . show) is
-                    log Ic3Log ""
                     addPredicates is
+                    ps <- getPredicates
+                    log Ic3Log $ "\tpredicates: " ++ show (length ps)
+                    log Ic3Log ""
                     goToLastFrame
             bad'
 

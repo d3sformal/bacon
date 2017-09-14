@@ -69,8 +69,8 @@ getCurrentFrameNum = lift $ subtract 1 . uncurry (-) . (teeth &&& tooth) <$> use
 getPredicates :: Ic3 a e [e 'BooleanSort]
 getPredicates = lift $ use predicates
 
-addPredicates :: Eq (e 'BooleanSort) => [e 'BooleanSort] -> Ic3 a e ()
-addPredicates ps = lift $ predicates %= nub . (++ ps)
+addPredicates :: ComplementedLattice (e 'BooleanSort) => Eq (e 'BooleanSort) => [e 'BooleanSort] -> Ic3 a e ()
+addPredicates ps = lift $ predicates %= nubBy (\a b -> a == b || a == complement b) . (++ ps)
 
 data Ic3Log = Ic3Log deriving ( Eq, Typeable )
 
@@ -132,6 +132,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                     addPredicates is
                     ps <- getPredicates
                     log Ic3Log $ "\tpredicates: " ++ show (length ps)
+                    mapM_ (log Ic3Log . ("\t\t" ++) . show) ps
                     log Ic3Log ""
                     goToLastFrame
             bad'
@@ -200,7 +201,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         n   <- getCurrentFrameNum
 
         bot <- isFirstFrame
-        pbs <- enumerate (c /\ pre b)
+        pbs <- enumerate (c /\ complement b /\ pre b)
 
         unless (null pbs) $
             if bot
@@ -214,7 +215,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                     block trace' b'
                     goFrameForth
                     c'' <- getPreviousFrame
-                    s   <- generalise (c'' \/ post c'') b'
+                    s   <- generalise c'' b'
                     log Ic3Log $ "\tf0" ++ (if n == 0 then "" else if n == 1 then ", f1" else if n == 2 then ", f1, f2" else  ", ..., f" ++ show n) ++ " \\ " ++ show s
                     blockHenceBack s
 
@@ -257,7 +258,20 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
             log Ic3Log $ "\tpush(f" ++ show k ++ ", f" ++ show (k + 1) ++ ", " ++ show ind' ++ ")"
             fix' c ind'
 
-    generalise s c = local $ assert s >> unsatcore c
+    generalise :: e 'BooleanSort -> e 'BooleanSort -> Ic3 a e (e 'BooleanSort)
+    generalise s c = do
+        r1 <- local $ assert ((s \/ post s) /\ c) >> check -- Cube that is not in `s` nor in `post s`
+        if r1
+        then do
+            r2 <- local $ assert (post s /\ c) >> check -- Cube that is in `s` but isn't in `post s`
+            if r2
+            then do
+                r3 <- local $ assert (post (s /\ complement c) /\ c) >> check -- Cube not in `post (s minus c)`
+                if r3
+                then return c -- Generalisation failed
+                else local $ assert (post (s /\ complement c)) >> unsatcore c
+            else local $ assert (post s) >> unsatcore c
+        else local $ assert (s \/ post s) >> unsatcore c
 
     post s = prime s /\ flipPrime t
     pre  c = prime c /\ t

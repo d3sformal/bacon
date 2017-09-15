@@ -221,12 +221,15 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
 
     blockHenceBack :: e 'BooleanSort -> Ic3 a e ()
     blockHenceBack s = do
-        bot <- isFirstFrame
-        modifyFrame (/\ complement s)
-        unless bot $ do
-            goFrameBack
-            blockHenceBack s
-            goFrameForth
+        f <- getCurrentFrame
+        r <- local $ assert (f /\ s) >> check
+        when r $ do
+            modifyFrame (/\ complement s)
+            bot <- isFirstFrame
+            unless bot $ do
+                goFrameBack
+                blockHenceBack s
+                goFrameForth
 
     fix = do
         pushFrame p
@@ -250,7 +253,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         unless l $ do
             n <- getNextFrame
             ind' <- return . complement . joins . nub -- block unique
-                <=< mapM (generalise (c \/ post c))   -- generalise
+                <=< mapM (generalise c)               -- generalise
                 <=< filterM (nonEmpty . (/\ n))       -- not blocked in next
                 <=< filterM (   empty . (/\ post c))  -- not reachable in one step from current
                  $  map complement (conjuncts c)      -- blocked in current
@@ -266,10 +269,11 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
             r2 <- local $ assert (post s /\ c) >> check -- Cube that is in `s` but isn't in `post s`
             if r2
             then do
-                r3 <- local $ assert (post (s /\ complement c) /\ c) >> check -- Cube not in `post (s minus c)`
-                if r3
-                then return c -- Generalisation failed
-                else local $ assert (post (s /\ complement c)) >> unsatcore c
+                let cs = conjuncts c
+
+                fmap (either id (const c)) . runExceptT . forM (map meets . tail . subsequences $ cs) $ \c' -> do
+                    r <- lift . local $ assert (post (s /\ complement c') /\ c') >> check
+                    unless r $ throwE c'
             else local $ assert (post s) >> unsatcore c
         else local $ assert (s \/ post s) >> unsatcore c
 

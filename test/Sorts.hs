@@ -57,46 +57,48 @@ frame vs f = let vs' = map prime vs in f .&. constant (prev vs vs') (vs' \\ map 
 --   h >= 2             -- empty and singleton arrays are trivially sorted, there cannot be two distinct distinguished cells in such arrays
 --   0 <= k1 < k2 < h   -- distinguish two cells
 --
--- 0: while (d < h - 1) -- outerloop
+-- 0: while (d < h - cnst 1) -- outerloop
 --      p := d
 --      b := a[d]
 --      f := b
---      i := d + 1
+--      i := d + cnst 1
 -- 1:   while (i < h)   -- innerloop
 --        x := a[i]
 -- 2:     if (x < b)    -- new minimum
 --          b := x
 --          p := i
---        i := i + 1
+--        i := i + cnst 1
 -- 3:   a[d] := b       -- swap
 -- 4:   a[p] := f
---      d := d + 1
+--      d := d + cnst 1
 --
 -- assert:
 --   forall k l. k < l => a[k] <= a[l] -- sortedness
 --
 selvs = [ pc, d, h, p, b, f, i, x, k1, k2, ak1, ak2 ]
-seli  = pc .=. 0 .&. h .>=. 2 .&. d .=. 0 .&. 0 .<=. k1 .&. k1 .<. k2 .&. k2 .<. h
-selp  = pc .=. 5 .->. ak1 .<=. ak2
+seli  = pc .=. cnst 0 .&. h .>=. cnst 2 .&. d .=. cnst 0 .&. cnst 0 .<=. k1 .&. k1 .<. k2 .&. k2 .<. h
+selp  = pc .=. cnst 5 .->. ak1 .<=. ak2
 selt  = k1 .<. k2 .&. (
         -- outer (walk over entire array (prefix is sorted))
-        frame selvs ( pc .=. 0 .&. pc' .=. 5 .&. d .>=. h .+. (-1) ) .|.
-        frame selvs ( pc .=. 0 .&. pc' .=. 1 .&. d .<.  h .+. (-1) .&. p' .=. d .&. ( d ./=. k1 .&. d ./=. k2 {- .&. b' .=. select a d -} .|. d .=. k1 .&. b' .=. ak1 .|. d .=. k2 .&. b' .=. ak2 ) .&. f' .=. b' .&. i' .=. d .+. 1 ) .|.
+        frame selvs ( pc .=. cnst 0 .&. pc' .=. cnst 5 .&. d .>=. h .+. cnst (-1) ) .|.
+        frame selvs ( pc .=. cnst 0 .&. pc' .=. cnst 1 .&. d .<.  h .+. cnst (-1) .&. p' .=. d
+                                    .&. ( d ./=. k1 .&. d ./=. k2 .|. d .=. k1 .&. b' .=. ak1 .|. d .=. k2 .&. b' .=. ak2 )
+                                    .&. f' .=. b' .&. i' .=. d .+. cnst 1 ) .|.
 
         -- inner (find minimum in remainder to be swapped with leftmost element)
-        frame selvs ( pc .=. 1 .&. pc' .=. 3 .&. i .>=. h ) .|.
-        frame selvs ( pc .=. 1 .&. pc' .=. 2 .&. i .<.  h .&. (i ./=. k1 .&. i ./=. k2 {- .&. x' .=. select a i -} .|. i .=. k1 .&. x' .=. ak1 .|. i .=. k2 .&. x' .=. ak2) ) .|.
+        frame selvs ( pc .=. cnst 1 .&. pc' .=. cnst 3 .&. i .>=. h ) .|.
+        frame selvs ( pc .=. cnst 1 .&. pc' .=. cnst 2 .&. i .<.  h .&. (i ./=. k1 .&. i ./=. k2 .|. i .=. k1 .&. x' .=. ak1 .|. i .=. k2 .&. x' .=. ak2) ) .|.
 
         -- if (found new minimum, remember value, and index)
-        frame selvs ( pc .=. 2 .&. pc' .=. 1 .&. x .>=. b .&. i' .=. i .+. 1 ) .|.
-        frame selvs ( pc .=. 2 .&. pc' .=. 1 .&. x .<.  b .&. b' .=. x .&. p' .=. i .&. i' .=. i .+. 1 ) .|.
+        frame selvs ( pc .=. cnst 2 .&. pc' .=. cnst 1 .&. x .>=. b .&. i' .=. i .+. cnst 1 ) .|.
+        frame selvs ( pc .=. cnst 2 .&. pc' .=. cnst 1 .&. x .<.  b .&. b' .=. x .&. p' .=. i .&. i' .=. i .+. cnst 1 ) .|.
 
         -- swap minimum with leftmost
-        frame selvs ( pc .=. 3 .&. pc' .=. 4 .&. ( d ./=. k1 .&. d ./=. k2 {- .&. a' .=. store a d b -} .&. ak1' .=. ak1 .&. ak2' .=. ak2 .|. d .=. k1 .&. ak1' .=. b .&. ak2' .=. ak2 .|. d .=. k2 .&. ak1' .=. ak1 .&. ak2' .=. b ) ) .|.
-        frame selvs ( pc .=. 4 .&. pc' .=. 0 .&. ( p ./=. k1 .&. p ./=. k2 {- .&. a' .=. store a p f -} .&. ak1' .=. ak1 .&. ak2' .=. ak2 .|. p .=. k1 .&. ak1' .=. f .&. ak2' .=. ak2 .|. p .=. k2 .&. ak1' .=. ak1 .&. ak2' .=. f ) .&. d' .=. d .+. 1 ) .|.
+        frame selvs ( pc .=. cnst 3 .&. pc' .=. cnst 4 .&. ( d ./=. k1 .&. d ./=. k2 .&. ak1' .=. ak1 .&. ak2' .=. ak2 .|. d .=. k1 .&. ak1' .=. b .&. ak2' .=. ak2 .|. d .=. k2 .&. ak1' .=. ak1 .&. ak2' .=. b ) ) .|.
+        frame selvs ( pc .=. cnst 4 .&. pc' .=. cnst 0 .&. ( p ./=. k1 .&. p ./=. k2 .&. ak1' .=. ak1 .&. ak2' .=. ak2 .|. p .=. k1 .&. ak1' .=. f .&. ak2' .=. ak2 .|. p .=. k2 .&. ak1' .=. ak1 .&. ak2' .=. f ) .&. d' .=. d .+. cnst 1 ) .|.
 
         -- end
-        frame selvs ( pc .=. 5 )
+        frame selvs ( pc .=. cnst 5 )
     )
 
 -- Bubble sort
@@ -116,23 +118,22 @@ selt  = k1 .<. k2 .&. (
 --    forall k l. k < l => a[k] <= a[l]
 --
 bubvs = [ pc, h, i, x, y, k1, k2, ak1, ak2 ]
-bubi  = pc .=. 0 .&. h .>=. 2 .&. 0 .<=. k1 .&. k1 .<. k2 .&. k2 .<. h
-bubp  = pc .=. 4 .->. ak1 .<=. ak2
+bubi  = pc .=. cnst 0 .&. h .>=. cnst 2 .&. cnst 0 .<=. k1 .&. k1 .<. k2 .&. k2 .<. h
+bubp  = pc .=. cnst 4 .->. ak1 .<=. ak2
 bubt  = k1 .<. k2 .&. (
-        frame bubvs ( pc .=. 0 .&. pc' .=. 4 .&. 1 .>=. h {- .&. a' .=. a -} ) .|.
-        frame bubvs ( pc .=. 0 .&. pc' .=. 1 .&. 1 .<.  h .&. i' .=. 0 {- .&. a' .=. a -} ) .|.
+        frame bubvs ( pc .=. cnst 0 .&. pc' .=. cnst 4 .&. cnst 1 .>=. h ) .|.
+        frame bubvs ( pc .=. cnst 0 .&. pc' .=. cnst 1 .&. cnst 1 .<.  h .&. i' .=. cnst 0 ) .|.
 
-        frame bubvs ( pc .=. 1 .&. pc' .=. 0 .&. i .>=. h .+. (-1) .&. h' .=. h .+. (-1) {- .&. a' .=. a -} ) .|.
-        frame bubvs ( pc .=. 1 .&. pc' .=. 2 .&. i .<.  h .+. (-1) .&. ( i ./=. k1 .&. i ./=. k2 {- .&. x' .=. select a i -} .|. i .=. k1 .&. x' .=. ak1 .|. i .=. k2 .&. x' .=. ak2 )
-                                                                   .&. ( i .+. 1 ./=. k1 .&. i .+. 1 ./=. k2 {- .&. y' .=. select a (i .+. 1) -} .|. i .+. 1 .=. k1 .&. y' .=. ak1 .|. i .+. 1 .=. k2 .&. y' .=. ak2 )
-                                                                   {- .&. a' .=. a -} ) .|.
+        frame bubvs ( pc .=. cnst 1 .&. pc' .=. cnst 0 .&. i .>=. h .+. cnst (-1) .&. h' .=. h .+. cnst (-1) ) .|.
+        frame bubvs ( pc .=. cnst 1 .&. pc' .=. cnst 2 .&. i .<.  h .+. cnst (-1) .&. ( i ./=. k1 .&. i ./=. k2 .|. i .=. k1 .&. x' .=. ak1 .|. i .=. k2 .&. x' .=. ak2 )
+                                                                   .&. ( i .+. cnst 1 ./=. k1 .&. i .+. cnst 1 ./=. k2 .|. i .+. cnst 1 .=. k1 .&. y' .=. ak1 .|. i .+. cnst 1 .=. k2 .&. y' .=. ak2 ) ) .|.
 
-        frame bubvs ( pc .=. 2 .&. pc' .=. 1 .&. x .<=. y .&. i' .=. i .+. 1 {- .&. a' .=. a -} ) .|.
-        frame bubvs ( pc .=. 2 .&. pc' .=. 3 .&. x .>.  y .&. ( i ./=. k1 .&. i ./=. k2 .&. ak1' .=. ak1 .&. ak2' .=. ak2 {- .&. a' .=. store a i y -} .|. i .=. k1 .&. ak1' .=. y .&. ak2' .=. ak2 {- .&. a' .=. a -} .|. i .=. k2 .&. ak1' .=. ak1 .&. ak2' .=. y {- .&. a' .=. a -} ) ) .|.
+        frame bubvs ( pc .=. cnst 2 .&. pc' .=. cnst 1 .&. x .<=. y .&. i' .=. i .+. cnst 1 ) .|.
+        frame bubvs ( pc .=. cnst 2 .&. pc' .=. cnst 3 .&. x .>.  y .&. ( i ./=. k1 .&. i ./=. k2 .&. ak1' .=. ak1 .&. ak2' .=. ak2 .|. i .=. k1 .&. ak1' .=. y .&. ak2' .=. ak2 .|. i .=. k2 .&. ak1' .=. ak1 .&. ak2' .=. y ) ) .|.
 
-        frame bubvs ( pc .=. 3 .&. pc' .=. 1 .&. ( i .+. 1 ./=. k1 .&. i .+. 1 ./=. k2 .&. ak1' .=. ak1 .&. ak2' .=. ak2 {- .&. a' .=. store a (i .+. 1) x -} .|. i .+. 1 .=. k1 .&. ak1' .=. x .&. ak2' .=. ak2 {- .&. a' .=. a -} .&. i .+. 1 .=. k2 .&. ak1' .=. ak1 .&. ak2' .=. x {- .&. a' .=. a -} ) .&. i' .=. i .+. 1 ) .|.
+        frame bubvs ( pc .=. cnst 3 .&. pc' .=. cnst 1 .&. ( i .+. cnst 1 ./=. k1 .&. i .+. cnst 1 ./=. k2 .&. ak1' .=. ak1 .&. ak2' .=. ak2 .|. i .+. cnst 1 .=. k1 .&. ak1' .=. x .&. ak2' .=. ak2 .&. i .+. cnst 1 .=. k2 .&. ak1' .=. ak1 .&. ak2' .=. x ) .&. i' .=. i .+. cnst 1 ) .|.
 
-        frame bubvs ( pc .=. 4 {- .&. a' .=. a -} )
+        frame bubvs ( pc .=. cnst 4 )
     )
 
-main = runSolver defaultLog ( ic3 (map (DynamicallySorted sing) bubvs {- ++ [DynamicallySorted sing a] -}) bubi bubt bubp)
+main = runSolver defaultLog ( ic3 (map (DynamicallySorted sing) selvs) seli selt selp )

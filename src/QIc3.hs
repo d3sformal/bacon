@@ -215,7 +215,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         n   <- getCurrentFrameNum
 
         bot <- isFirstFrame
-        pbs <- enumerate (c /\ pre b)
+        pbs <- enumerate (c /\ complement b /\ pre b)
 
         unless (null pbs) $
             if bot
@@ -229,18 +229,21 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                     block trace' b'
                     goFrameForth
                     c'' <- getPreviousFrame
-                    s   <- generalise (c'' \/ post c'') b'
+                    s   <- generalise c'' b'
                     log Ic3Log $ "\tf0" ++ (if n == 0 then "" else if n == 1 then ", f1" else if n == 2 then ", f1, f2" else  ", ..., f" ++ show n) ++ " \\ " ++ show s
                     blockHenceBack s
 
     blockHenceBack :: e 'BooleanSort -> Ic3 a e ()
     blockHenceBack s = do
-        bot <- isFirstFrame
-        modifyFrame (/\ complement s)
-        unless bot $ do
-            goFrameBack
-            blockHenceBack s
-            goFrameForth
+        f <- getCurrentFrame
+        r <- local $ assert (f /\ s) >> check
+        when r $ do
+            bot <- isFirstFrame
+            modifyFrame (/\ complement s)
+            unless bot $ do
+                goFrameBack
+                blockHenceBack s
+                goFrameForth
 
     fix = do
         pushFrame p
@@ -264,7 +267,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         unless l $ do
             n <- getNextFrame
             ind' <- return . complement . joins . nub -- block unique
-                <=< mapM (generalise (c \/ post c))   -- generalise
+                <=< mapM (generalise c)               -- generalise
                 <=< filterM (nonEmpty . (/\ n))       -- not blocked in next
                 <=< filterM (   empty . (/\ post c))  -- not reachable in one step from current
                  $  map complement (conjuncts c)      -- blocked in current
@@ -272,7 +275,21 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
             log Ic3Log $ "\tpush(f" ++ show k ++ ", f" ++ show (k + 1) ++ ", " ++ show ind' ++ ")"
             fix' c ind'
 
-    generalise s c = local $ assert s >> unsatcore c
+    generalise :: e 'BooleanSort -> e 'BooleanSort -> Ic3 a e (e 'BooleanSort)
+    generalise s c = do
+        r1 <- local $ assert ((s \/ post s) /\ c) >> check -- Cube that is not in `s` nor in `post s`
+        if r1
+        then do
+            r2 <- local $ assert (post s /\ c) >> check -- Cube that is in `s` but isn't in `post s`
+            if r2
+            then do
+                let cs = conjuncts c
+
+                fmap (either id (const c)) . runExceptT . forM (map meets . tail . subsequences $ cs) $ \c' -> do
+                    r <- lift . local $ assert (post (s /\ complement c') /\ c') >> check
+                    unless r $ throwE c'
+            else local $ assert (post s) >> unsatcore c
+        else local $ assert (s \/ post s) >> unsatcore c
 
     post s = prime s /\ flipPrime t
     pre  c = prime c /\ t

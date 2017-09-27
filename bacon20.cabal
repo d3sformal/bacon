@@ -12,6 +12,7 @@ library
   exposed-modules:     Pdr,
                        Ic3,
                        QIc3,
+                       TwoCellIc3,
                        RecMc,
                        Solver
   build-depends:       base >=4.9 && <4.11,

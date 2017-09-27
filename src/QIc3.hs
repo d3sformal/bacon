@@ -215,7 +215,10 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         n   <- getCurrentFrameNum
 
         bot <- isFirstFrame
-        pbs <- enumerate (c /\ complement b /\ pre b)
+
+        -- if we omit the constraint (/\ complement b) we are trying to prove a stronger property (more then inductivity)
+        -- but we can't simply add the constraint without needing to add AbsRelInd from Griggio et al. TACAS14
+        pbs <- enumerate (c {- /\ complement b -} /\ pre b)
 
         unless (null pbs) $
             if bot

@@ -7,6 +7,7 @@
 !src/Pdr.hs
 !src/Ic3.hs
 !src/QIc3.hs
+!src/TwoCellIc3.hs
 !src/RecMc.hs
 !src/Solver.hs
 !test/

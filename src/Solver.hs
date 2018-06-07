@@ -20,7 +20,7 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
 import Data.Expression
-import Data.Expression.Z3
+import Data.Expression.Z3 hiding (push, pop, assert, check, model, unsatcore, interpolate, eliminate)
 import Data.List
 import Data.Singletons
 import Data.Typeable

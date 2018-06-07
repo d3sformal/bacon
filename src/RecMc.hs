@@ -17,15 +17,15 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
-import Control.Monad.Trans.List
 import Control.Monad.Trans.State
 import Data.Either
 import Data.Expression
 import Data.List hiding (insert, init)
-import Data.Map hiding (map, take, mapMaybe, filter, (\\), foldr, empty)
+import Data.Map hiding (map, take, mapMaybe, filter, (\\), foldr, empty, toList)
 import Data.Maybe
 import Data.Monoid
 import Data.Typeable
+import ListT hiding (head, null, take, tail, repeat)
 import Prelude hiding (init, abs, log)
 
 import qualified Prelude as P
@@ -200,13 +200,13 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                     -- (function summaries)
                     Left  (Pdr.Cex cexo) -> do
                         log RecMcLog "proven: no\n"
-                        qs <- runListT $ do
+                        qs <- toList $ do
                             (prefix, suffix) <- splits cexo
 
                             let e1  = last prefix
                                 e2  = head suffix
 
-                            Call f' ph sub <- ListT . return $ cs
+                            Call f' ph sub <- fromFoldable $ cs
 
                             -- Select the function being called at this step
                             guard =<< lift (notRealised (e1 /\ t /\ complement ph /\ prime e2))
@@ -262,7 +262,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
         p'  <- eliminateVars ls (inv /\ ex)
         return (complement i' \/ p')
 
-    concretise b f tr = head <$> runListT (go tr) where
+    concretise b f tr = head <$> toList (go tr) where
         Function _ is ls os _ t _ cs = s ! f
         vs = is ++ ls ++ os
 
@@ -278,7 +278,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
             return []
 
         goCall e1 e2 = if b < 1 then empty else do
-            Call f' ph sub <- ListT . return $ cs
+            Call f' ph sub <- fromFoldable $ cs
             u <- lift $ getUnderapproximations (b - 1)
             let t' = t `substitute` (bottom `for` ph)
                 Function _ is' ls' os' en t'' ex cs' = s ! f'
@@ -293,7 +293,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
             Left (Pdr.Cex cex) <- lift . lift . lift . nest $ c vs' i' (transitions t'' cs' u) (complement p')
             lift $ concretise (b - 1) f' cex
 
-    splits as = ListT . return . P.init . tail $ splits' as []
+    splits as = fromFoldable . P.init . tail $ splits' as []
     splits' []           r = [([], reverse r)]
     splits' as@(a : as') r = (reverse r, as) : splits' as' (a : r)
 

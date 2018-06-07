@@ -3,6 +3,7 @@
 !ChangeLog.md
 !LICENSE
 !bacon20.cabal
+!stack.yaml
 !src/
 !src/Pdr.hs
 !src/Ic3.hs

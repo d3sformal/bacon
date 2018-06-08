@@ -18,3 +18,4 @@
 !test/DuplicateEntry.hs
 !test/Ackermann.hs
 !test/Sorts.hs
+!test/SimpleScheduler.hs

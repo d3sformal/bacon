@@ -4,42 +4,47 @@
            , TypeOperators #-}
 
 -- topic: very simple scheduler that uses a cyclic buffer
+-- program contains: (1) loops over individual array elements, (2) several if-then-else statements where the branching conditions test (in-)equality of an element at the given index with a constant or variable of an integer type
 
 import Data.Expression
 import Ic3 -- we do not use quantifiers intentionally
 import Pdr
 import Solver
 
--- TODO start
-- fragmenty zdrojaku
-	time_unit = 1;
-	time_slice = 20;
-	max_int = 32767;
-	// elements of array 'a': remaining time slice (in the current round)
-	int[] a = new int[N};
-	// elements of array 'b': jak dlouho uz proces/vlakno nebezel
-	int[] b = new int[N];
-	// init phase
-	for (k = 0...N-1) a[k] = time_slice
-	for (k = 0...N-1) b[k] = max_int
-	// scheduler loop (infinite)
-	while (true) do
-		a[cur] -= time_unit // current thread used (run for) one time step
-		for (k = 0...N-1) do
-			if (k != cur) then b[k] += time_unit // other threads did not run for another time step
-		end for
-		// change current thread
-		if (a[cur] <= 0) then
-			b[cur] = 0 // thread just finished its round
-			cur = cur + 1
-			if (cur >= N) cur = 0
-			b[cur] = 0 // thread will run just now
-		end if
-		// prepare for the next round
-		for (k = 0...N-1) do
-			if (a[k] <= 0) then a[k] = time_slice
-		end for
-	end while
+-- TODO zakodovani: rozsiruju soubor bacon/test/DuplicateEntry.hs
+--	obsahuje taky priklad jak zadefinovat pole
+--	zpusob jak muzu kodovat for-loops ve transition relation: udelat backjump na mensi "pc" ktere odpovida "head" (viz Sorts.hs)
+--	transition relation musi byt complete (prechod ze kazdeho stavu, treba ve forme self-loop do stejneho program counter)
+
+-- TODO fragmenty zdrojaku
+--	time_unit = 1;
+--	time_slice = 20;
+--	max_int = 32767;
+--	// elements of array 'a': remaining time slice (in the current round)
+--	int[] a = new int[N};
+--	// elements of array 'b': jak dlouho uz proces/vlakno nebezel
+--	int[] b = new int[N];
+--	// init phase
+--	for (k = 0...N-1) a[k] = time_slice
+--	for (k = 0...N-1) b[k] = max_int
+--	// scheduler loop (infinite)
+--	while (true) do
+--		a[cur] -= time_unit // current thread used (run for) one time step
+--		for (k = 0...N-1) do
+--			if (k != cur) then b[k] += time_unit // other threads did not run for another time step
+--		end for
+--		// change current thread
+--		if (a[cur] <= 0) then
+--			b[cur] = 0 // thread just finished its round
+--			cur = cur + 1
+--			if (cur >= N) cur = 0
+--			b[cur] = 0 // thread will run just now
+--		end if
+--		// prepare for the next round
+--		for (k = 0...N-1) do
+--			if (a[k] <= 0) then a[k] = time_slice
+--		end for
+--	end while
 -- TODO end
 
 

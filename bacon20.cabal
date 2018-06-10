@@ -80,3 +80,13 @@ test-suite ackermann
   hs-source-dirs:      test
   main-is:             Ackermann.hs
   default-language:    Haskell2010
+
+test-suite simplescheduler
+  type:                exitcode-stdio-1.0
+  build-depends:       bacon20,
+                       base,
+                       containers,
+                       expressions
+  hs-source-dirs:      test
+  main-is:             SimpleScheduler.hs
+  default-language:    Haskell2010

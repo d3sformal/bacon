@@ -56,9 +56,6 @@ constant prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `looku
 frame :: [ALia 'IntegralSort] -> ALia 'BooleanSort -> ALia 'BooleanSort
 frame vs f = let vs' = map prime vs in f .&. constant (prev vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
 
--- TODO vyresit nasledujici
-    -- modelovani array size (dost vopruz)
-
 -- all variables used in the system to be analyzed by IC3
 vs  = map (DynamicallySorted SIntegralSort) [pc, tu, ts, m, k, n, cur] ++ [DynamicallySorted (SArraySort SIntegralSort SIntegralSort) a, DynamicallySorted (SArraySort SIntegralSort SIntegralSort) b]
 
@@ -91,10 +88,6 @@ a'  = var "a'"  :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 b   = var "b"   :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 b'  = var "b'"  :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 
--- TODO
--- zpusob jak muzu kodovat for-loops ve transition relation: udelat backjump na mensi "pc" ktere odpovida "head" (viz Sorts.hs)
--- transition relation musi byt complete (prechod ze kazdeho stavu, treba ve forme self-loop do stejneho program counter)
-
 -- TODO pridat frame conditions ke kazdemu disjunktu T (napr. ts' = ts pokud se ts nemeni)
 	-- frame <var list> <formule>
 	-- frame vs <formule>
@@ -108,9 +101,16 @@ i =
   --	max_int = 32767;
   --	int[] a = new int[N];
   --	int[] b = new int[N];
-  pc .=. cnst 0 .&. tu .=. cnst 1 .&. ts .=. cnst 20 .&. m .=. cnst 32767 .&. k .=. cnst 0
+  pc .=. cnst 0 .&. tu .=. cnst 1 .&. ts .=. cnst 20 .&. m .=. cnst 32767 .&. k .=. cnst 0 .&. n .>. cnst 0
+
+-- we model the array size through the symbolic variable n used as the upper bound for array indexes within loops
+    -- the variable n is just constrained to be greater than 0 (i.e., array sizes can be completely arbitrary, but we do not want to try proving the given property for arrays with a negative size)
+    -- if this simple approach is not sufficient then we can use an uninterpreted function (encoded by an array) that captures the array lengths, i.e. f(a) = a_length
+    -- anyway, we have to manually reflect the array length in the interpretation of statements and properties: for example, instead of "[forall i. p(a(i))]" use something like "[forall i. 0 <= i < f(a) implies p(a(i))]"
 
 -- transition relation
+    -- it has to be complete, i.e. we must define transition from every state
+    -- one approach is to create self-loops (to the same program counter)
 t =
   --	for (k = 0...N-1) a[k] = time_slice
   pc .=. cnst 0 .&. pc' .=. cnst 0 .&. k .<.  n .&. k' .=. k .+. cnst 1 .&. a' .=. store a k ts .|.
@@ -135,15 +135,15 @@ t =
   --		end for
   --		if (a[cur] <= 0) then
   pc .=. cnst 4 .&. pc' .=. cnst 5 .&. k .>=. n .&. select a cur .<=. cnst 0 .|.
-  pc .=. cnst 4 .&. pc' .=. cnst 6 .&. k .>=. n .&. select a cur .>.  cnst 0 .|.
+  pc .=. cnst 4 .&. pc' .=. cnst 6 .&. k .>=. n .&. select a cur .>.  cnst 0 .&. k' .=. cnst 0 .|.
 
   --			b[cur] = 0
   --			cur = cur + 1
   --			if (cur >= N) cur = 0
   --			b[cur] = 0
   --		end if
-  pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .>=. n .&. b' .=. store (store b cur (cnst 0)) (cnst 0) (cnst 0) .&. cur' .=. cnst 0 .|.
-  pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .<.  n .&. b' .=. store (store b cur (cnst 0)) cur' (cnst 0) .&. cur' .=. cur .+. cnst 1 .|.
+  pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .>=. n .&. b' .=. store (store b cur (cnst 0)) (cnst 0) (cnst 0) .&. cur' .=. cnst 0 .&. k' .=. cnst 0 .|.
+  pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .<.  n .&. b' .=. store (store b cur (cnst 0)) cur' (cnst 0) .&. cur' .=. cur .+. cnst 1 .&. k' .=. cnst 0 .|.
 
   --		for (k = 0...N-1) do
   --			if (a[k] <= 0) then a[k] = time_slice

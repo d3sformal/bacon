@@ -75,8 +75,9 @@ getQuantifierFreePredicates = fst <$> getPredicates
 getQuantifiedPredicates :: ( IFoldable f, MaybeQuantified f, e ~ IFix f ) => Ic3 a e [e 'BooleanSort]
 getQuantifiedPredicates = snd <$> getPredicates
 
-addPredicates :: Eq (e 'BooleanSort) => [e 'BooleanSort] -> Ic3 a e ()
-addPredicates ps = lift $ predicates %= nub . (++ ps)
+-- may not work for quantified formulas (predicates to be added) due to "complement" (we will check this)
+addPredicates :: ComplementedLattice (e 'BooleanSort) => Eq (e 'BooleanSort) => [e 'BooleanSort] -> Ic3 a e ()
+addPredicates ps = lift $ predicates %= nubBy (\a b -> a == b || a == complement b) . (++ ps)
 
 data Ic3Log = Ic3Log deriving ( Eq, Typeable )
 
@@ -137,8 +138,11 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                     is <- concatMap (literals . unprime) <$> interpolate trace'
                     log Ic3Log "\trefine: "
                     mapM_ (log Ic3Log . ("\t\t" ++) . show) is
-                    log Ic3Log ""
                     addPredicates is
+                    ps <- getPredicates
+                    log Ic3Log $ "\tpredicates: " ++ show (length ps)
+                    mapM_ (log Ic3Log . ("\t\t" ++) . show) ps
+                    log Ic3Log ""
                     goToLastFrame
             bad'
 

@@ -8,8 +8,11 @@
 
 -- we need quantified language for the property and maybe elsewhere too
 import Data.Expression
+import Data.List hiding (and)
+import Data.Maybe
 import QIc3
 import Pdr
+import Prelude hiding (and)
 import Solver
 
 -- complete program in C-like syntax
@@ -47,17 +50,31 @@ import Solver
 
 prime = (`substitute` Substitution (\v -> case match v of { Just (Var n s) -> Just . inject $ Var (n ++ "'") s; _ -> Nothing }))
 
-prev :: [ALia 'IntegralSort] -> [ALia 'IntegralSort] -> [(ALia 'IntegralSort, ALia 'IntegralSort)]
-prev = flip zip
+prevscalar :: [ALia 'IntegralSort] -> [ALia 'IntegralSort] -> [(ALia 'IntegralSort, ALia 'IntegralSort)]
+prevscalar = flip zip
 
-constant :: [(ALia 'IntegralSort, ALia 'IntegralSort)] -> [ALia 'IntegralSort] -> ALia 'BooleanSort
-constant prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
+prevarray :: [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> [(ALia ('ArraySort 'IntegralSort 'IntegralSort), ALia ('ArraySort 'IntegralSort 'IntegralSort))]
+prevarray = flip zip
 
-frame :: [ALia 'IntegralSort] -> ALia 'BooleanSort -> ALia 'BooleanSort
-frame vs f = let vs' = map prime vs in f .&. constant (prev vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
+constantscalar :: [(ALia 'IntegralSort, ALia 'IntegralSort)] -> [ALia 'IntegralSort] -> ALia 'BooleanSort
+constantscalar prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
+
+constantarray :: [(ALia ('ArraySort 'IntegralSort 'IntegralSort), ALia ('ArraySort 'IntegralSort 'IntegralSort))] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort
+constantarray prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
+
+framescalar :: [ALia 'IntegralSort] -> ALia 'BooleanSort -> ALia 'BooleanSort
+framescalar vs f = let vs' = map prime vs in f .&. constantscalar (prevscalar vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
+
+framearray :: [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort -> ALia 'BooleanSort
+framearray vs f = let vs' = map prime vs in f .&. constantarray (prevarray vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
+
+frame :: [ALia 'IntegralSort] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort -> ALia 'BooleanSort
+frame ss as f = framescalar ss (framearray as f)
 
 -- all variables used in the system to be analyzed by IC3
-vs  = map (DynamicallySorted SIntegralSort) [pc, tu, ts, m, k, n, cur] ++ [DynamicallySorted (SArraySort SIntegralSort SIntegralSort) a, DynamicallySorted (SArraySort SIntegralSort SIntegralSort) b]
+scalarvn = [pc, tu, ts, m, k, n, cur]
+arrayvn = [a, b]
+schedvs  = map (DynamicallySorted SIntegralSort) scalarvn ++ map (DynamicallySorted (SArraySort SIntegralSort SIntegralSort)) arrayvn
 
 -- Pre and Post state variables (of type Int)
 -- program counter
@@ -88,14 +105,8 @@ a'  = var "a'"  :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 b   = var "b"   :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 b'  = var "b'"  :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 
--- TODO pridat frame conditions ke kazdemu disjunktu T (napr. ts' = ts pokud se ts nemeni)
-	-- frame <var list> <formule>
-	-- frame vs <formule>
-	-- obcas muzu potrebovat jen sublist promennych
-		-- nejspis definovat rucne: vs = [ pc, d, h, p, b, f, i, x, k1, k2, ak1, ak2 ]
-
 -- initial state
-i =
+schedi =
   --	time_unit = 1;
   --	time_slice = 20;
   --	max_int = 32767;
@@ -111,46 +122,47 @@ i =
 -- transition relation
     -- it has to be complete, i.e. we must define transition from every state
     -- one approach is to create self-loops (to the same program counter)
-t =
+    -- frame condition has to be defined for each disjunct (to capture all unmodified state variables)
+schedt =
   --	for (k = 0...N-1) a[k] = time_slice
-  pc .=. cnst 0 .&. pc' .=. cnst 0 .&. k .<.  n .&. k' .=. k .+. cnst 1 .&. a' .=. store a k ts .|.
-  pc .=. cnst 0 .&. pc' .=. cnst 1 .&. k .>=. n .&. k' .=. cnst 0 .|.
+  frame scalarvn arrayvn ( pc .=. cnst 0 .&. pc' .=. cnst 0 .&. k .<.  n .&. k' .=. k .+. cnst 1 .&. a' .=. store a k ts ) .|.
+  frame scalarvn arrayvn ( pc .=. cnst 0 .&. pc' .=. cnst 1 .&. k .>=. n .&. k' .=. cnst 0 ) .|.
 
   --	for (k = 0...N-1) b[k] = max_int
-  pc .=. cnst 1 .&. pc' .=. cnst 1 .&. k .<.  n .&. k' .=. k .+. cnst 1 .&. b' .=. store b k m .|.
-  pc .=. cnst 1 .&. pc' .=. cnst 2 .&. k .>=. n .|.
+  frame scalarvn arrayvn ( pc .=. cnst 1 .&. pc' .=. cnst 1 .&. k .<.  n .&. k' .=. k .+. cnst 1 .&. b' .=. store b k m ) .|.
+  frame scalarvn arrayvn ( pc .=. cnst 1 .&. pc' .=. cnst 2 .&. k .>=. n ) .|.
 
   --	cur = 0
-  pc .=. cnst 2 .&. pc' .=. cnst 3 .&. cur' .=. cnst 0 .|.
+  frame scalarvn arrayvn ( pc .=. cnst 2 .&. pc' .=. cnst 3 .&. cur' .=. cnst 0 ) .|.
 
   --	while (true) do
   --		a[cur] -= time_unit
-  pc .=. cnst 3 .&. pc' .=. cnst 4 .&. a' .=. store a cur (select a cur .+. (cnst (-1) .*. tu)) .&. k' .=. cnst 0 .|.
+  frame scalarvn arrayvn ( pc .=. cnst 3 .&. pc' .=. cnst 4 .&. a' .=. store a cur (select a cur .+. (cnst (-1) .*. tu)) .&. k' .=. cnst 0 ) .|.
 
   --		for (k = 0...N-1) do
   --			if (k != cur) then b[k] += time_unit
-  pc .=. cnst 4 .&. pc' .=. cnst 4 .&. k .<.  n .&. k ./=. cur .&. k' .=. k .+. cnst 1 .&. b' .=. store b k (select b k .+. tu) .|.
-  pc .=. cnst 4 .&. pc' .=. cnst 4 .&. k .<.  n .&. k .=.  cur .&. k' .=. k .+. cnst 1 .|.
+  frame scalarvn arrayvn ( pc .=. cnst 4 .&. pc' .=. cnst 4 .&. k .<.  n .&. k ./=. cur .&. k' .=. k .+. cnst 1 .&. b' .=. store b k (select b k .+. tu) ) .|.
+  frame scalarvn arrayvn ( pc .=. cnst 4 .&. pc' .=. cnst 4 .&. k .<.  n .&. k .=.  cur .&. k' .=. k .+. cnst 1 ) .|.
 
   --		end for
   --		if (a[cur] <= 0) then
-  pc .=. cnst 4 .&. pc' .=. cnst 5 .&. k .>=. n .&. select a cur .<=. cnst 0 .|.
-  pc .=. cnst 4 .&. pc' .=. cnst 6 .&. k .>=. n .&. select a cur .>.  cnst 0 .&. k' .=. cnst 0 .|.
+  frame scalarvn arrayvn ( pc .=. cnst 4 .&. pc' .=. cnst 5 .&. k .>=. n .&. select a cur .<=. cnst 0 ) .|.
+  frame scalarvn arrayvn ( pc .=. cnst 4 .&. pc' .=. cnst 6 .&. k .>=. n .&. select a cur .>.  cnst 0 .&. k' .=. cnst 0 ) .|.
 
   --			b[cur] = 0
   --			cur = cur + 1
   --			if (cur >= N) cur = 0
   --			b[cur] = 0
   --		end if
-  pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .>=. n .&. b' .=. store (store b cur (cnst 0)) (cnst 0) (cnst 0) .&. cur' .=. cnst 0 .&. k' .=. cnst 0 .|.
-  pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .<.  n .&. b' .=. store (store b cur (cnst 0)) cur' (cnst 0) .&. cur' .=. cur .+. cnst 1 .&. k' .=. cnst 0 .|.
+  frame scalarvn arrayvn ( pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .>=. n .&. b' .=. store (store b cur (cnst 0)) (cnst 0) (cnst 0) .&. cur' .=. cnst 0 .&. k' .=. cnst 0 ) .|.
+  frame scalarvn arrayvn ( pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .<.  n .&. b' .=. store (store b cur (cnst 0)) cur' (cnst 0) .&. cur' .=. cur .+. cnst 1 .&. k' .=. cnst 0 ) .|.
 
   --		for (k = 0...N-1) do
   --			if (a[k] <= 0) then a[k] = time_slice
   --		end for
   --	end while
-  pc .=. cnst 6 .&. pc' .=. cnst 6 .&. k .<.  n .&. a' .=. store a k ts .&. k' .=. k .+. cnst 1 .|.
-  pc .=. cnst 6 .&. pc' .=. cnst 3 .&. k .>=. n
+  frame scalarvn arrayvn ( pc .=. cnst 6 .&. pc' .=. cnst 6 .&. k .<.  n .&. a' .=. store a k ts .&. k' .=. k .+. cnst 1 ) .|.
+  frame scalarvn arrayvn ( pc .=. cnst 6 .&. pc' .=. cnst 3 .&. k .>=. n )
 
 -- check expected outcome
 cex :: Show (e 'BooleanSort) => Either (Cex e) (Inv e) -> IO ()
@@ -161,14 +173,16 @@ inv :: Show (e 'BooleanSort) => Either (Cex e) (Inv e) -> IO ()
 inv (Left  (Cex cs)) = error    . ("failed with counterexample: " ++) . show $ cs
 inv (Right (Inv iv)) = putStrLn . ("succeeded with invariant: "   ++) . show $ iv
 
--- TODO upravit seznam auxiliary variables tak aby odpovidal moji property
 -- auxiliary variables for quantified property
-k, l :: forall g. VarF :<: g => IFix g 'IntegralSort
-k = var "k"
-l = var "l"
+i, j :: forall g. VarF :<: g => IFix g 'IntegralSort
+i = var "i"
+j = var "j"
 
--- TODO zakodovat skutecnou property
+-- quantified property over the array content defined using the template "forall i,j @ P(i,j)"
+    -- what it says: a thread further away from the current thread in the cyclic buffer did not run for a longer time
+    -- plain text encoding: forall i,j @ ((i >= 0 and i < n and j >= 0 and j < n) and ((i >= cur and j <= cur) or (i >= cur and j >= i) or (i <= cur and j <= cur and j >= i))) => (b[i] <= b[j])
+schedp = pc .=. cnst 3 .->. forall [i, j] ( ( ( i .>=. cnst 0 .&. i .<. n .&. j .>=. cnst 0 .&. j .<. n ) .&. ( ( i .>=. cur .&. j .<=. cur ) .|. ( i .>=. cur .&. j .>=. i ) .|. ( i .<=. cur .&. j .<=. cur .&. j .>=. i ) ) ) .->. ( select b i .<=. select b j ) )
+
 -- run IC3 with different properties, check whether IC3 responds with an expected Cex or Inv
-main = mapM_ (\(sink, i, p) -> sink =<< runSolver logAll ( ic3 vs i t p )) [ (inv, pc .=. cnst 0 .&. i ./=. j .&. i .>=. cnst 0 .&. j .>=. cnst 0, pc .=. cnst 3 .->. exists [k, l] (k ./=. l .&.  select a k .=.  select a l))
-                                                                           , (cex, pc .=. cnst 0 .&. i ./=. j .&. i .>=. cnst 0 .&. j .>=. cnst 0, pc .=. cnst 3 .->. forall [k, l] (k ./=. l .->. select a k ./=. select a l)) ]
-                                                                           -- , (cex, pc .=. cnst 0 .&.              i .>=. cnst 0 .&. j .>=. cnst 0, pc .=. cnst 3 .->. exists [k, l] (k ./=. l .&.  select a k .=.  select a l)) ]
+main = inv =<< runSolver logAll ( ic3 schedvs schedi schedt schedp )
+

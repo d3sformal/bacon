@@ -10,6 +10,7 @@
 import Data.Expression
 import Data.List hiding (and)
 import Data.Maybe
+import Data.Singletons
 import QIc3
 import Pdr
 import Prelude hiding (and)
@@ -48,32 +49,34 @@ import Solver
 
 -- several functions that enable definition of "frame" (set of variables not modified by a specific disjunct of the transition relation)
 
-prime = (`substitute` Substitution (\v -> case match v of { Just (Var n s) -> Just . inject $ Var (n ++ "'") s; _ -> Nothing }))
+prime = flip substitute (Substitution f) where
+    f v = case match v of
+        Just (Var n s) -> Just . inject $ Var (n ++ "'") s
+        _              -> Nothing
 
-prevScalar :: [ALia 'IntegralSort] -> [ALia 'IntegralSort] -> [(ALia 'IntegralSort, ALia 'IntegralSort)]
-prevScalar = flip zip
+prev :: [a] -> [b] -> [(b, a)]
+prev = flip zip
 
-prevArray :: [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> [(ALia ('ArraySort 'IntegralSort 'IntegralSort), ALia ('ArraySort 'IntegralSort 'IntegralSort))]
-prevArray = flip zip
+constant :: ( IEq1 f, EqualityF :<: f, ConjunctionF :<: f, DisjunctionF :<: f, SingI s ) => [(IFix f s, IFix f s)] -> [IFix f s] -> IFix f 'BooleanSort
+constant prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
 
-constantScalar :: [(ALia 'IntegralSort, ALia 'IntegralSort)] -> [ALia 'IntegralSort] -> ALia 'BooleanSort
-constantScalar prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
+frameMonoSort :: SingI s => [ALia s] -> ALia 'BooleanSort -> ALia 'BooleanSort
+frameMonoSort vs f =
+    let vs' = map prime vs in
 
-constantArray :: [(ALia ('ArraySort 'IntegralSort 'IntegralSort), ALia ('ArraySort 'IntegralSort 'IntegralSort))] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort
-constantArray prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
+        f .&. constant (prev vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
 
-frameScalar :: [ALia 'IntegralSort] -> ALia 'BooleanSort -> ALia 'BooleanSort
-frameScalar vs f = let vs' = map prime vs in f .&. constantScalar (prevScalar vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
+frame :: ALia 'BooleanSort -> ALia 'BooleanSort
+frame = frameMonoSort ss . frameMonoSort as where
+    as :: [ALia ('ArraySort 'IntegralSort 'IntegralSort)]
+    as = mapMaybe toStaticallySorted schedvs
 
-frameArray :: [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort -> ALia 'BooleanSort
-frameArray vs f = let vs' = map prime vs in f .&. constantArray (prevArray vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
-
-frame :: [ALia 'IntegralSort] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort -> ALia 'BooleanSort
-frame ss as f = frameScalar ss (frameArray as f)
+    ss :: [ALia 'IntegralSort]
+    ss = mapMaybe toStaticallySorted schedvs
 
 -- all variables used in the system to be analyzed by IC3
 scalarvn = [pc, tu, ts, m, k, n, cur]
-arrayvn = [a, b]
+arrayvn  = [a, b]
 schedvs  = map (DynamicallySorted SIntegralSort) scalarvn ++ map (DynamicallySorted (SArraySort SIntegralSort SIntegralSort)) arrayvn
 
 -- Pre and Post state variables (of type Int)
@@ -125,44 +128,44 @@ schedi =
     -- frame condition has to be defined for each disjunct (to capture all unmodified state variables)
 schedt =
   --	for (k = 0...N-1) a[k] = time_slice
-  frame scalarvn arrayvn ( pc .=. cnst 0 .&. pc' .=. cnst 0 .&. k .<.  n .&. k' .=. k .+. cnst 1 .&. a' .=. store a k ts ) .|.
-  frame scalarvn arrayvn ( pc .=. cnst 0 .&. pc' .=. cnst 1 .&. k .>=. n .&. k' .=. cnst 0 ) .|.
+  frame ( pc .=. cnst 0 .&. pc' .=. cnst 0 .&. k .<.  n .&. k' .=. k .+. cnst 1 .&. a' .=. store a k ts ) .|.
+  frame ( pc .=. cnst 0 .&. pc' .=. cnst 1 .&. k .>=. n .&. k' .=. cnst 0 ) .|.
 
   --	for (k = 0...N-1) b[k] = max_int
-  frame scalarvn arrayvn ( pc .=. cnst 1 .&. pc' .=. cnst 1 .&. k .<.  n .&. k' .=. k .+. cnst 1 .&. b' .=. store b k m ) .|.
-  frame scalarvn arrayvn ( pc .=. cnst 1 .&. pc' .=. cnst 2 .&. k .>=. n ) .|.
+  frame ( pc .=. cnst 1 .&. pc' .=. cnst 1 .&. k .<.  n .&. k' .=. k .+. cnst 1 .&. b' .=. store b k m ) .|.
+  frame ( pc .=. cnst 1 .&. pc' .=. cnst 2 .&. k .>=. n ) .|.
 
   --	cur = 0
-  frame scalarvn arrayvn ( pc .=. cnst 2 .&. pc' .=. cnst 3 .&. cur' .=. cnst 0 ) .|.
+  frame ( pc .=. cnst 2 .&. pc' .=. cnst 3 .&. cur' .=. cnst 0 ) .|.
 
   --	while (true) do
   --		a[cur] -= time_unit
-  frame scalarvn arrayvn ( pc .=. cnst 3 .&. pc' .=. cnst 4 .&. a' .=. store a cur (select a cur .+. (cnst (-1) .*. tu)) .&. k' .=. cnst 0 ) .|.
+  frame ( pc .=. cnst 3 .&. pc' .=. cnst 4 .&. a' .=. store a cur (select a cur .+. (cnst (-1) .*. tu)) .&. k' .=. cnst 0 ) .|.
 
   --		for (k = 0...N-1) do
   --			if (k != cur) then b[k] += time_unit
-  frame scalarvn arrayvn ( pc .=. cnst 4 .&. pc' .=. cnst 4 .&. k .<.  n .&. k ./=. cur .&. k' .=. k .+. cnst 1 .&. b' .=. store b k (select b k .+. tu) ) .|.
-  frame scalarvn arrayvn ( pc .=. cnst 4 .&. pc' .=. cnst 4 .&. k .<.  n .&. k .=.  cur .&. k' .=. k .+. cnst 1 ) .|.
+  frame ( pc .=. cnst 4 .&. pc' .=. cnst 4 .&. k .<.  n .&. k ./=. cur .&. k' .=. k .+. cnst 1 .&. b' .=. store b k (select b k .+. tu) ) .|.
+  frame ( pc .=. cnst 4 .&. pc' .=. cnst 4 .&. k .<.  n .&. k .=.  cur .&. k' .=. k .+. cnst 1 ) .|.
 
   --		end for
   --		if (a[cur] <= 0) then
-  frame scalarvn arrayvn ( pc .=. cnst 4 .&. pc' .=. cnst 5 .&. k .>=. n .&. select a cur .<=. cnst 0 ) .|.
-  frame scalarvn arrayvn ( pc .=. cnst 4 .&. pc' .=. cnst 6 .&. k .>=. n .&. select a cur .>.  cnst 0 .&. k' .=. cnst 0 ) .|.
+  frame ( pc .=. cnst 4 .&. pc' .=. cnst 5 .&. k .>=. n .&. select a cur .<=. cnst 0 ) .|.
+  frame ( pc .=. cnst 4 .&. pc' .=. cnst 6 .&. k .>=. n .&. select a cur .>.  cnst 0 .&. k' .=. cnst 0 ) .|.
 
   --			b[cur] = 0
   --			cur = cur + 1
   --			if (cur >= N) cur = 0
   --			b[cur] = 0
   --		end if
-  frame scalarvn arrayvn ( pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .>=. n .&. b' .=. store (store b cur (cnst 0)) (cnst 0) (cnst 0) .&. cur' .=. cnst 0 .&. k' .=. cnst 0 ) .|.
-  frame scalarvn arrayvn ( pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .<.  n .&. b' .=. store (store b cur (cnst 0)) cur' (cnst 0) .&. cur' .=. cur .+. cnst 1 .&. k' .=. cnst 0 ) .|.
+  frame ( pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .>=. n .&. b' .=. store (store b cur (cnst 0)) (cnst 0) (cnst 0) .&. cur' .=. cnst 0 .&. k' .=. cnst 0 ) .|.
+  frame ( pc .=. cnst 5 .&. pc' .=. cnst 6 .&. cur .+. cnst 1 .<.  n .&. b' .=. store (store b cur (cnst 0)) cur' (cnst 0) .&. cur' .=. cur .+. cnst 1 .&. k' .=. cnst 0 ) .|.
 
   --		for (k = 0...N-1) do
   --			if (a[k] <= 0) then a[k] = time_slice
   --		end for
   --	end while
-  frame scalarvn arrayvn ( pc .=. cnst 6 .&. pc' .=. cnst 6 .&. k .<.  n .&. a' .=. store a k ts .&. k' .=. k .+. cnst 1 ) .|.
-  frame scalarvn arrayvn ( pc .=. cnst 6 .&. pc' .=. cnst 3 .&. k .>=. n )
+  frame ( pc .=. cnst 6 .&. pc' .=. cnst 6 .&. k .<.  n .&. a' .=. store a k ts .&. k' .=. k .+. cnst 1 ) .|.
+  frame ( pc .=. cnst 6 .&. pc' .=. cnst 3 .&. k .>=. n )
 
 -- check expected outcome
 cex :: Show (e 'BooleanSort) => Either (Cex e) (Inv e) -> IO ()

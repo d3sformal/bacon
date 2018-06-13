@@ -54,17 +54,22 @@ prime = flip substitute (Substitution f) where
         Just (Var n s) -> Just . inject $ Var (n ++ "'") s
         _              -> Nothing
 
-prev :: [a] -> [b] -> [(b, a)]
-prev = flip zip
+lookupPre :: Eq b => [a] -> [b] -> b -> Maybe a
+lookupPre pres posts = flip lookup $ zip posts pres
 
-constant :: ( IEq1 f, EqualityF :<: f, ConjunctionF :<: f, DisjunctionF :<: f, SingI s ) => [(IFix f s, IFix f s)] -> [IFix f s] -> IFix f 'BooleanSort
-constant prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
+constant :: ( IEq1 f, IShow f, EqualityF :<: f, ConjunctionF :<: f, DisjunctionF :<: f, SingI s ) => (IFix f s -> Maybe (IFix f s)) -> [IFix f s] -> IFix f 'BooleanSort
+constant pre vs' = inheritPreValuesOrFail where
+    inheritPreValue  v'    = (v' .=.) <$> pre v'
+    inheritPreValues       = and <$> mapM inheritPreValue vs'
+    inheritPreValuesOrFail = fromMaybe (error $ "could not frame all variables in " ++ show vs') inheritPreValues
 
 frameMonoSort :: SingI s => [ALia s] -> ALia 'BooleanSort -> ALia 'BooleanSort
-frameMonoSort vs f =
-    let vs' = map prime vs in
+frameMonoSort all f = f .&. constant (lookupPre all all') unconstrained where
+    bound         = mapMaybe toStaticallySorted $ vars f
+    all'          = map prime all
+    unconstrained = all' \\ map toALia bound
 
-        f .&. constant (prev vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
+    toALia (IFix (Var v s)) = inject $ Var v s
 
 frame :: ALia 'BooleanSort -> ALia 'BooleanSort
 frame = frameMonoSort ss . frameMonoSort as where

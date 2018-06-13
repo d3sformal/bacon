@@ -77,7 +77,7 @@ frame = frameMonoSort ss . frameMonoSort as where
 -- all variables used in the system to be analyzed by IC3
 scalarvn = [pc, tu, ts, m, k, n, cur]
 arrayvn  = [a, b]
-schedvs  = map (DynamicallySorted SIntegralSort) scalarvn ++ map (DynamicallySorted (SArraySort SIntegralSort SIntegralSort)) arrayvn
+schedvs  = map toDynamicallySorted scalarvn ++ map toDynamicallySorted arrayvn
 
 -- Pre and Post state variables (of type Int)
 -- program counter

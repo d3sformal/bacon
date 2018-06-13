@@ -50,26 +50,26 @@ import Solver
 
 prime = (`substitute` Substitution (\v -> case match v of { Just (Var n s) -> Just . inject $ Var (n ++ "'") s; _ -> Nothing }))
 
-prevscalar :: [ALia 'IntegralSort] -> [ALia 'IntegralSort] -> [(ALia 'IntegralSort, ALia 'IntegralSort)]
-prevscalar = flip zip
+prevScalar :: [ALia 'IntegralSort] -> [ALia 'IntegralSort] -> [(ALia 'IntegralSort, ALia 'IntegralSort)]
+prevScalar = flip zip
 
-prevarray :: [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> [(ALia ('ArraySort 'IntegralSort 'IntegralSort), ALia ('ArraySort 'IntegralSort 'IntegralSort))]
-prevarray = flip zip
+prevArray :: [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> [(ALia ('ArraySort 'IntegralSort 'IntegralSort), ALia ('ArraySort 'IntegralSort 'IntegralSort))]
+prevArray = flip zip
 
-constantscalar :: [(ALia 'IntegralSort, ALia 'IntegralSort)] -> [ALia 'IntegralSort] -> ALia 'BooleanSort
-constantscalar prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
+constantScalar :: [(ALia 'IntegralSort, ALia 'IntegralSort)] -> [ALia 'IntegralSort] -> ALia 'BooleanSort
+constantScalar prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
 
-constantarray :: [(ALia ('ArraySort 'IntegralSort 'IntegralSort), ALia ('ArraySort 'IntegralSort 'IntegralSort))] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort
-constantarray prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
+constantArray :: [(ALia ('ArraySort 'IntegralSort 'IntegralSort), ALia ('ArraySort 'IntegralSort 'IntegralSort))] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort
+constantArray prev vs' = fromMaybe false (and <$> mapM (\v' -> (v' .=.) <$> v' `lookup` prev) vs')
 
-framescalar :: [ALia 'IntegralSort] -> ALia 'BooleanSort -> ALia 'BooleanSort
-framescalar vs f = let vs' = map prime vs in f .&. constantscalar (prevscalar vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
+frameScalar :: [ALia 'IntegralSort] -> ALia 'BooleanSort -> ALia 'BooleanSort
+frameScalar vs f = let vs' = map prime vs in f .&. constantScalar (prevScalar vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
 
-framearray :: [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort -> ALia 'BooleanSort
-framearray vs f = let vs' = map prime vs in f .&. constantarray (prevarray vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
+frameArray :: [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort -> ALia 'BooleanSort
+frameArray vs f = let vs' = map prime vs in f .&. constantArray (prevArray vs vs') (vs' \\ map (\(IFix (Var v s)) -> inject (Var v s)) (mapMaybe toStaticallySorted (vars f)))
 
 frame :: [ALia 'IntegralSort] -> [ALia ('ArraySort 'IntegralSort 'IntegralSort)] -> ALia 'BooleanSort -> ALia 'BooleanSort
-frame ss as f = framescalar ss (framearray as f)
+frame ss as f = frameScalar ss (frameArray as f)
 
 -- all variables used in the system to be analyzed by IC3
 scalarvn = [pc, tu, ts, m, k, n, cur]

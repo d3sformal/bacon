@@ -194,9 +194,9 @@ j = var "j"
 schedp =
     pc .=. 3 .->. forall [i, j] ( ( 0 .<=. i .&. i .<. n .&.
                                     0 .<=. j .&. j .<. n .&.
-                                    ( ( i .>=. cur .&. j .<=. cur ) .|.
-                                      ( i .>=. cur .&. j .>=. i )   .|.
-                                      ( i .<=. cur .&. j .<=. cur .&. j .>=. i ) ) ) .->. ( select b i .<=. select b j ) )
+                                    ( (   j .<=. cur .&. cur .<=. i   ) .|.
+                                      ( cur .<=. i   .&.   i .<=. j   ) .|.
+                                      (   i .<=. j   .&.   j .<=. cur ) ) ) .->. ( select b i .<=. select b j ) )
 
 -- run IC3 with different properties, check whether IC3 responds with an expected Cex or Inv
 main = inv =<< runSolver logAll ( ic3 schedvs schedi schedt schedp )

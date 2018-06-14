@@ -88,32 +88,32 @@ schedvs  = map toDynamicallySorted scalarvn ++ map toDynamicallySorted arrayvn
 
 -- Pre and Post state variables (of type Int)
 -- program counter
-pc    = var "pc"   :: ALia 'IntegralSort
-pc'   = var "pc'"  :: ALia 'IntegralSort
+pc   = var "pc"   :: ALia 'IntegralSort
+pc'  = var "pc'"  :: ALia 'IntegralSort
 -- time_unit
-tu    = var "tu"   :: ALia 'IntegralSort
-tu'   = var "tu'"  :: ALia 'IntegralSort
+tu   = var "tu"   :: ALia 'IntegralSort
+tu'  = var "tu'"  :: ALia 'IntegralSort
 -- time_slice
-ts    = var "ts"   :: ALia 'IntegralSort
-ts'   = var "ts'"  :: ALia 'IntegralSort
+ts   = var "ts"   :: ALia 'IntegralSort
+ts'  = var "ts'"  :: ALia 'IntegralSort
 -- max_int
-m     = var "m"    :: ALia 'IntegralSort
-m'    = var "m'"   :: ALia 'IntegralSort
+m    = var "m"    :: ALia 'IntegralSort
+m'   = var "m'"   :: ALia 'IntegralSort
 -- index for arrays / loop counter
-k     = var "k"    :: ALia 'IntegralSort
-k'    = var "k'"   :: ALia 'IntegralSort
+k    = var "k"    :: ALia 'IntegralSort
+k'   = var "k'"   :: ALia 'IntegralSort
 -- array length (N)
-n     = var "n"    :: ALia 'IntegralSort
-n'    = var "n'"   :: ALia 'IntegralSort
+n    = var "n"    :: ALia 'IntegralSort
+n'   = var "n'"   :: ALia 'IntegralSort
 -- currently scheduled thread
-cur   = var "cur"  :: ALia 'IntegralSort
-cur'  = var "cur'" :: ALia 'IntegralSort
+cur  = var "cur"  :: ALia 'IntegralSort
+cur' = var "cur'" :: ALia 'IntegralSort
 
 -- Pre and Post state variables (of type [Int])
-a   = var "a"   :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
-a'  = var "a'"  :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
-b   = var "b"   :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
-b'  = var "b'"  :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
+a  = var "a"  :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
+a' = var "a'" :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
+b  = var "b"  :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
+b' = var "b'" :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 
 -- initial state
 schedi =
@@ -164,7 +164,7 @@ schedt =
   --			if (cur >= N) cur = 0
   --			b[cur] = 0
   --		end if
-  frame ( pc .=. 5 .&. pc' .=. 6 .&. cur .+. 1 .>=. n .&. b' .=. store (store b cur 0) 0 0 .&. cur' .=. 0 .&. k' .=. 0 ) .|.
+  frame ( pc .=. 5 .&. pc' .=. 6 .&. cur .+. 1 .>=. n .&. b' .=. store (store b cur 0) cur' 0 .&. cur' .=. 0         .&. k' .=. 0 ) .|.
   frame ( pc .=. 5 .&. pc' .=. 6 .&. cur .+. 1 .<.  n .&. b' .=. store (store b cur 0) cur' 0 .&. cur' .=. cur .+. 1 .&. k' .=. 0 ) .|.
 
   --		for (k = 0...N-1) do
@@ -191,7 +191,12 @@ j = var "j"
 -- quantified property over the array content defined using the template "forall i,j @ P(i,j)"
     -- what it says: a thread further away from the current thread in the cyclic buffer did not run for a longer time
     -- plain text encoding: forall i,j @ ((i >= 0 and i < n and j >= 0 and j < n) and ((i >= cur and j <= cur) or (i >= cur and j >= i) or (i <= cur and j <= cur and j >= i))) => (b[i] <= b[j])
-schedp = pc .=. 3 .->. forall [i, j] ( ( ( i .>=. 0 .&. i .<. n .&. j .>=. 0 .&. j .<. n ) .&. ( ( i .>=. cur .&. j .<=. cur ) .|. ( i .>=. cur .&. j .>=. i ) .|. ( i .<=. cur .&. j .<=. cur .&. j .>=. i ) ) ) .->. ( select b i .<=. select b j ) )
+schedp =
+    pc .=. 3 .->. forall [i, j] ( ( 0 .<=. i .&. i .<. n .&.
+                                    0 .<=. j .&. j .<. n .&.
+                                    ( ( i .>=. cur .&. j .<=. cur ) .|.
+                                      ( i .>=. cur .&. j .>=. i )   .|.
+                                      ( i .<=. cur .&. j .<=. cur .&. j .>=. i ) ) ) .->. ( select b i .<=. select b j ) )
 
 -- run IC3 with different properties, check whether IC3 responds with an expected Cex or Inv
 main = inv =<< runSolver logAll ( ic3 schedvs schedi schedt schedp )

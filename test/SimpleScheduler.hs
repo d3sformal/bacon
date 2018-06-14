@@ -74,17 +74,12 @@ frameMonoSort all f = f .&. constant (lookupPre all all') unconstrained where
     toALia (IFix (Var v s)) = inject $ Var v s
 
 frame :: ALia 'BooleanSort -> ALia 'BooleanSort
-frame = frameMonoSort ss . frameMonoSort as where
-    as :: [ALia ('ArraySort 'IntegralSort 'IntegralSort)]
-    as = mapMaybe toStaticallySorted schedvs
-
-    ss :: [ALia 'IntegralSort]
-    ss = mapMaybe toStaticallySorted schedvs
+frame = frameMonoSort scalarvs . frameMonoSort arrayvs
 
 -- all variables used in the system to be analyzed by IC3
-scalarvn = [pc, tu, ts, m, k, n, cur]
-arrayvn  = [a, b]
-schedvs  = map toDynamicallySorted scalarvn ++ map toDynamicallySorted arrayvn
+scalarvs = [pc, tu, ts, m, k, n, cur]
+arrayvs  = [a, b]
+schedvs  = map toDynamicallySorted scalarvs ++ map toDynamicallySorted arrayvs
 
 -- Pre and Post state variables (of type Int)
 -- program counter
@@ -196,7 +191,7 @@ schedp =
                                     0 .<=. j .&. j .<. n .&.
                                     ( (   j .<=. cur .&. cur .<=. i   ) .|.
                                       ( cur .<=. i   .&.   i .<=. j   ) .|.
-                                      (   i .<=. j   .&.   j .<=. cur ) ) ) .->. ( select b i .<=. select b j ) )
+                                      (   i .<=. j   .&.   j .<=. cur ) ) ) .->. ( select b i .>=. select b j ) )
 
 -- run IC3 with different properties, check whether IC3 responds with an expected Cex or Inv
 main = inv =<< runSolver logAll ( ic3 schedvs schedi schedt schedp )

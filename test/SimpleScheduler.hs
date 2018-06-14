@@ -189,7 +189,7 @@ i = var "i"
 j = var "j"
 
 -- quantified property over the array content defined using the template "forall i,j @ P(i,j)"
-    -- what it says: a thread further away from the current thread in the cyclic buffer did not run for a longer time
+    -- what it says: for two threads represented by 'i' and 'j', a thread 'j' further away from the current thread in the cyclic buffer did not run for a longer time
     -- plain text encoding: forall i,j @ ((i >= 0 and i < n and j >= 0 and j < n) and ((i >= cur and j <= cur) or (i >= cur and j >= i) or (i <= cur and j <= cur and j >= i))) => (b[i] <= b[j])
 schedp =
     pc .=. 3 .->. forall [i, j] ( ( 0 .<=. i .&. i .<. n .&.

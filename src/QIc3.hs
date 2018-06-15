@@ -117,7 +117,9 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
     bad = do
         -- check post(top frame) /\ not prop
         n  <- getCurrentFrameNum
+        c  <- getCurrentFrame
         log Ic3Log $ "iter" ++ show n ++ ":"
+        log Ic3Log $ "bad: cur frame " ++ show n ++ " = " ++ show c
         bad'
 
     bad' :: Ic3 Cex e ()
@@ -262,6 +264,8 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
 
         c <- getCurrentFrame
         k <- getCurrentFrameNum
+
+        log Ic3Log $ "fix: cur frame " ++ show k ++ " = " ++ show c
 
         e <- empty (c /\ complement prev) -- we already know that prev is subset of c, check the full equality to detect fixpoint
         when (k > 0) $ do

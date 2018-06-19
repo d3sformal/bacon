@@ -9,6 +9,7 @@
            , RankNTypes
            , ScopedTypeVariables
            , TemplateHaskell
+           , TypeApplications
            , TypeOperators
            , UndecidableInstances #-}
 
@@ -25,6 +26,7 @@ import Control.Zipper
 import Data.Expression
 import Data.List hiding (and, or, init)
 import Data.Maybe
+import Data.Singletons
 import Data.Typeable
 import Prelude hiding (and, or, not, log, init)
 
@@ -299,7 +301,12 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
             -- Cube that is not in `s` nor in `post s`
             assert ((s \/ post s) /\ c)
             r' <- check
-            mapM model (mapMaybe toStaticallySorted $ vars s)
+            let vb = mapMaybe (toStaticallySorted @ VarF @ 'BooleanSort ) $ vars s
+                vi = mapMaybe (toStaticallySorted @ VarF @ 'IntegralSort) $ vars s
+            mb <- mapM (model . toE) vb
+            mi <- mapM (model . toE) vi
+
+            log Ic3Log $ "got model1: " ++ show mb ++ " " ++ show mi
             return r'
         if r1
         then do
@@ -307,7 +314,12 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                 -- Cube that is in `s` but isn't in `post s`
                 assert (post s /\ c)
                 r' <- check
-                mapM model (mapMaybe toStaticallySorted $ vars s)
+                let vb = mapMaybe (toStaticallySorted @ VarF @ 'BooleanSort ) $ vars s
+                    vi = mapMaybe (toStaticallySorted @ VarF @ 'IntegralSort) $ vars s
+                mb <- mapM (model . toE) vb
+                mi <- mapM (model . toE) vi
+
+                log Ic3Log $ "got model2: " ++ show mb ++ " " ++ show mi
                 return r'
             if r2
             then do
@@ -321,3 +333,6 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
 
     post s = prime s /\ flipPrime t
     pre  c = prime c /\ t
+
+    toE :: SingI s => Var s -> e s
+    toE (IFix (Var n s)) = inject (Var n s)

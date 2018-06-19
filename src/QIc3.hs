@@ -301,6 +301,8 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
             -- Cube that is not in `s` nor in `post s`
             assert ((s \/ post s) /\ c)
             r' <- check
+
+            -- completely bullshit idea, the point is that the query is most probably unsat at this point, so model extraction fails
             let vb = mapMaybe (toStaticallySorted @ VarF @ 'BooleanSort ) $ vars s
                 vi = mapMaybe (toStaticallySorted @ VarF @ 'IntegralSort) $ vars s
             mb <- mapM (model . toE) vb
@@ -314,6 +316,8 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                 -- Cube that is in `s` but isn't in `post s`
                 assert (post s /\ c)
                 r' <- check
+
+                -- completely bullshit idea, the point is that the query is most probably unsat at this point, so model extraction fails
                 let vb = mapMaybe (toStaticallySorted @ VarF @ 'BooleanSort ) $ vars s
                     vi = mapMaybe (toStaticallySorted @ VarF @ 'IntegralSort) $ vars s
                 mb <- mapM (model . toE) vb

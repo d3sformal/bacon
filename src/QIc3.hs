@@ -110,6 +110,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         log Ic3Log $ "t: " ++ show t
         log Ic3Log $ "p: " ++ show p
         local $ do
+            log Ic3Log "init: enumerating the initial state with negated property"
             bs <- enumerate (i /\ complement p)
             unless (null bs) $ throwE (Cex [head bs])
 
@@ -126,6 +127,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
     bad' = do
         c  <- getCurrentFrame
         n  <- getCurrentFrameNum
+        log Ic3Log "bad': enumerating post-frame with negated property"
         bs <- enumerate (post c /\ complement p)
         unless (null bs) $ do
             log Ic3Log $ "\tpost(f" ++ show n ++ "): " ++ show (post c) ++ "\n"
@@ -152,7 +154,11 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
     empty s = P.not <$> nonEmpty s
 
     nonEmpty :: e 'BooleanSort -> Ic3 a e Bool
-    nonEmpty s = local $ assert s >> check
+    nonEmpty s = local $ do
+        log Ic3Log "\tchecking non-empty:"
+        assert s
+        r <- check
+        return r
 
     enumerate :: e 'BooleanSort -> Ic3 a e [e 'BooleanSort]
     enumerate s = do
@@ -288,10 +294,21 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
 
     generalise :: e 'BooleanSort -> e 'BooleanSort -> Ic3 a e (e 'BooleanSort)
     generalise s c = do
-        r1 <- local $ assert ((s \/ post s) /\ c) >> check -- Cube that is not in `s` nor in `post s`
+        log Ic3Log "generalise: performing assertions over cubes"
+        r1 <- local $ do
+            -- Cube that is not in `s` nor in `post s`
+            assert ((s \/ post s) /\ c)
+            r' <- check
+            mapM model (mapMaybe toStaticallySorted $ vars s)
+            return r'
         if r1
         then do
-            r2 <- local $ assert (post s /\ c) >> check -- Cube that is in `s` but isn't in `post s`
+            r2 <- local $ do
+                -- Cube that is in `s` but isn't in `post s`
+                assert (post s /\ c)
+                r' <- check
+                mapM model (mapMaybe toStaticallySorted $ vars s)
+                return r'
             if r2
             then do
                 let cs = conjuncts c

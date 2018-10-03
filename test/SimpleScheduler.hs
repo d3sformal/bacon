@@ -76,24 +76,16 @@ frameMonoSort all f = f .&. constant (lookupPre all all') unconstrained where
 frame :: ALia 'BooleanSort -> ALia 'BooleanSort
 frame = frameMonoSort scalarvs . frameMonoSort arrayvs
 
--- all variables used in the system to be analyzed by IC3
-scalarvs = [pc, tu, ts, m, k, n, cur]
+-- all variables used in the system and quantified property to be analyzed by IC3
+scalarvs = [pc, k, n, cur]
 arrayvs  = [a, b]
-schedvs  = map toDynamicallySorted scalarvs ++ map toDynamicallySorted arrayvs
+qpropvs  = [i, j]
+schedvs  = map toDynamicallySorted scalarvs ++ map toDynamicallySorted arrayvs ++ map toDynamicallySorted qpropvs
 
 -- Pre and Post state variables (of type Int)
 -- program counter
 pc   = var "pc"   :: ALia 'IntegralSort
 pc'  = var "pc'"  :: ALia 'IntegralSort
--- time_unit
-tu   = var "tu"   :: ALia 'IntegralSort
-tu'  = var "tu'"  :: ALia 'IntegralSort
--- time_slice
-ts   = var "ts"   :: ALia 'IntegralSort
-ts'  = var "ts'"  :: ALia 'IntegralSort
--- max_int
-m    = var "m"    :: ALia 'IntegralSort
-m'   = var "m'"   :: ALia 'IntegralSort
 -- index for arrays / loop counter
 k    = var "k"    :: ALia 'IntegralSort
 k'   = var "k'"   :: ALia 'IntegralSort
@@ -112,12 +104,9 @@ b' = var "b'" :: ALia ('ArraySort 'IntegralSort 'IntegralSort)
 
 -- initial state
 schedi =
-  --	time_unit = 1;
-  --	time_slice = 20;
-  --	max_int = 32767;
   --	int[] a = new int[N];
   --	int[] b = new int[N];
-  pc .=. 0 .&. tu .=. 1 .&. ts .=. 20 .&. m .=. 32767 .&. k .=. 0 .&. n .>. 0
+  pc .=. 0 .&. k .=. 0 .&. n .>. 0
 
 -- we model the array size through the symbolic variable n used as the upper bound for array indexes within loops
     -- the variable n is just constrained to be greater than 0 (i.e., array sizes can be completely arbitrary, but we do not want to try proving the given property for arrays with a negative size)
@@ -130,11 +119,11 @@ schedi =
     -- frame condition has to be defined for each disjunct (to capture all unmodified state variables)
 schedt =
   --	for (k = 0...N-1) a[k] = time_slice
-  frame ( pc .=. 0 .&. pc' .=. 0 .&. k .<.  n .&. k' .=. k .+. 1 .&. a' .=. store a k ts ) .|.
+  frame ( pc .=. 0 .&. pc' .=. 0 .&. k .<.  n .&. k' .=. k .+. 1 .&. a' .=. store a k 20 ) .|.
   frame ( pc .=. 0 .&. pc' .=. 1 .&. k .>=. n .&. k' .=. 0 ) .|.
 
   --	for (k = 0...N-1) b[k] = max_int
-  frame ( pc .=. 1 .&. pc' .=. 1 .&. k .<.  n .&. k' .=. k .+. 1 .&. b' .=. store b k m ) .|.
+  frame ( pc .=. 1 .&. pc' .=. 1 .&. k .<.  n .&. k' .=. k .+. 1 .&. b' .=. store b k 32767 ) .|.
   frame ( pc .=. 1 .&. pc' .=. 2 .&. k .>=. n ) .|.
 
   --	cur = 0
@@ -142,11 +131,11 @@ schedt =
 
   --	while (true) do
   --		a[cur] -= time_unit
-  frame ( pc .=. 3 .&. pc' .=. 4 .&. a' .=. store a cur (select a cur .+. negate tu) .&. k' .=. 0 ) .|.
+  frame ( pc .=. 3 .&. pc' .=. 4 .&. a' .=. store a cur (select a cur .+. negate 1) .&. k' .=. 0 ) .|.
 
   --		for (k = 0...N-1) do
   --			if (k != cur) then b[k] += time_unit
-  frame ( pc .=. 4 .&. pc' .=. 4 .&. k .<.  n .&. k ./=. cur .&. k' .=. k .+. 1 .&. b' .=. store b k (select b k .+. tu) ) .|.
+  frame ( pc .=. 4 .&. pc' .=. 4 .&. k .<.  n .&. k ./=. cur .&. k' .=. k .+. 1 .&. b' .=. store b k (select b k .+. 1) ) .|.
   frame ( pc .=. 4 .&. pc' .=. 4 .&. k .<.  n .&. k .=.  cur .&. k' .=. k .+. 1 ) .|.
 
   --		end for
@@ -165,9 +154,12 @@ schedt =
   --		for (k = 0...N-1) do
   --			if (a[k] <= 0) then a[k] = time_slice
   --		end for
+  frame ( pc .=. 6 .&. pc' .=. 6 .&. k .<.  n .&. select a k .<=. 0 .&. a' .=. store a k 20 .&. k' .=. k .+. 1 ) .|.
+  frame ( pc .=. 6 .&. pc' .=. 6 .&. k .<.  n .&. select a k .>.  0  &. k' .=. k .+. 1 ) .|.
+  frame ( pc .=. 6 .&. pc' .=. 7 .&. k .>=. n ) .|.
+  
   --	end while
-  frame ( pc .=. 6 .&. pc' .=. 6 .&. k .<.  n .&. a' .=. store a k ts .&. k' .=. k .+. 1 ) .|.
-  frame ( pc .=. 6 .&. pc' .=. 3 .&. k .>=. n )
+  frame ( pc .=. 7 .&. pc' .=. 3 .&. k .>=. n )
 
 -- check expected outcome
 cex :: Show (e 'BooleanSort) => Either (Cex e) (Inv e) -> IO ()
@@ -187,11 +179,14 @@ j = var "j"
     -- what it says: for two threads represented by 'i' and 'j', a thread 'j' further away from the current thread in the cyclic buffer did not run for a longer time
     -- plain text encoding: forall i,j @ ((i >= 0 and i < n and j >= 0 and j < n) and ((i >= cur and j <= cur) or (i >= cur and j >= i) or (i <= cur and j <= cur and j >= i))) => (b[i] <= b[j])
 schedp =
-    pc .=. 3 .->. forall [i, j] ( ( 0 .<=. i .&. i .<. n .&.
+    --pc .=. 7 .->. ( ( (i .=. 0 .&. j .=. 0) .|. (i .=. 0 .&. j .=. 1) ) .->. -- simplified property (used to collect frames)
+    pc .=. 7 .->. forall [i, j] 
+                                ( ( 0 .<=. i .&. i .<. n .&.
                                     0 .<=. j .&. j .<. n .&.
                                     ( (   j .<=. cur .&. cur .<=. i   ) .|.
                                       ( cur .<=. i   .&.   i .<=. j   ) .|.
-                                      (   i .<=. j   .&.   j .<=. cur ) ) ) .->. ( select b i .>=. select b j ) )
+                                      (   i .<=. j   .&.   j .<=. cur ) ) ) .->. ( select b i .<=. select b j ) )
+                  --) -- closing bracket of the simplified property
 
 -- run IC3 with different properties, check whether IC3 responds with an expected Cex or Inv
 main = inv =<< runSolver logAll ( ic3 schedvs schedi schedt schedp )

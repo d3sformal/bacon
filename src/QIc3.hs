@@ -17,7 +17,7 @@ module QIc3 where
 
 import Algebra.Lattice
 import Control.Arrow
-import Control.Lens hiding ((%~), pre)
+import Control.Lens hiding ((%~), pre, imapM)
 import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
@@ -27,12 +27,14 @@ import Data.Expression
 import Data.List hiding (and, or, init)
 import Data.Maybe
 import Data.Singletons
+import Data.Singletons.Decide
 import Data.Typeable
 import Prelude hiding (and, or, not, log, init)
 
 import Pdr
 import Solver
 
+import qualified Data.Functor.Const as F
 import qualified Prelude as P
 
 data Ic3State e = Ic3State { _frames     :: Top :>> [e 'BooleanSort] :>> e 'BooleanSort
@@ -92,13 +94,16 @@ ic3 :: forall e f. ( ComplementedLattice (e 'BooleanSort)
                    , Eq (e 'BooleanSort)
                    , e ~ IFix f
                    , VarF :<: f
+                   , VarF :<<: f
+                   , ArrayF :<: f
                    , EqualityF :<: f
                    , ConjunctionF :<: f
                    , DisjunctionF :<: f
                    , MaybeQuantified f
                    , IEq1 f
                    , IShow f
-                   , IFoldable f )
+                   , IFoldable f
+                   , ITraversable f )
     => [DynamicallySorted f]
     -> e 'BooleanSort
     -> e 'BooleanSort
@@ -145,9 +150,12 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                     log Ic3Log "\trefine: "
                     mapM_ (log Ic3Log . ("\t\t" ++) . show) is
                     addPredicates is
-                    ps <- getPredicates
-                    log Ic3Log $ "\tpredicates: " ++ show (length ps)
-                    mapM_ (log Ic3Log . ("\t\t" ++) . show) ps
+                    qfps <- getQuantifierFreePredicates
+                    log Ic3Log $ "\tquantifier-free predicates: " ++ show (length qfps)
+                    mapM_ (log Ic3Log . ("\t\t" ++) . show) qfps
+                    qps <- getQuantifiedPredicates
+                    log Ic3Log $ "\tquantified predicates: " ++ show (length qps)
+                    mapM_ (log Ic3Log . ("\t\t" ++) . show) qps
                     log Ic3Log ""
                     goToLastFrame
             bad'
@@ -160,6 +168,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         log Ic3Log "\tchecking non-empty:"
         assert s
         r <- check
+        showCheckResult s r
         return r
 
     enumerate :: e 'BooleanSort -> Ic3 a e [e 'BooleanSort]
@@ -201,14 +210,18 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
     concretise tr = local $ do
         assert (meets tr)
 
+        let arridxs = extractArrayIndexExpressions tr
+
         forM [0 .. length tr - 1] $ \s -> do
             let bs = mapMaybe toStaticallySorted vs :: [e 'BooleanSort]
                 is = mapMaybe toStaticallySorted vs :: [e 'IntegralSort]
+                ais = nub $ map (\(arr, idx) -> (unprime (embed arr), unprime idx)) arridxs
 
             a <- fmap meets . forM bs $ \v -> model (prime' s v) >>= \b -> if b == top then return v else return (complement v)
             b <- fmap meets . forM is $ \v -> (v .=.) <$> model (prime' s v)
+            c <- fmap meets . forM ais $ \(arr, idx) -> (select arr idx .=.) <$> model (prime' s (select arr idx))
 
-            return (a /\ b)
+            return (a /\ b /\ c)
 
     cube :: Ic3 a e (e 'BooleanSort)
     cube = do
@@ -255,12 +268,12 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         f <- getCurrentFrame
         r <- local $ assert (f /\ s) >> check
         when r $ do
-            bot <- isFirstFrame
             modifyFrame (/\ complement s)
-            unless bot $ do
-                goFrameBack
-                blockHenceBack s
-                goFrameForth
+        bot <- isFirstFrame
+        unless bot $ do
+            goFrameBack
+            blockHenceBack s
+            goFrameForth
 
     fix = do
         pushFrame p
@@ -296,19 +309,12 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
 
     generalise :: e 'BooleanSort -> e 'BooleanSort -> Ic3 a e (e 'BooleanSort)
     generalise s c = do
-        log Ic3Log "generalise: performing assertions over cubes"
+        log Ic3Log $ "generalise: performing assertions over the cube " ++ show c ++ " and the current frame"
         r1 <- local $ do
             -- Cube that is not in `s` nor in `post s`
             assert ((s \/ post s) /\ c)
             r' <- check
-
-            -- completely bullshit idea, the point is that the query is most probably unsat at this point, so model extraction fails
-            let vb = mapMaybe (toStaticallySorted @ VarF @ 'BooleanSort ) $ vars s
-                vi = mapMaybe (toStaticallySorted @ VarF @ 'IntegralSort) $ vars s
-            mb <- mapM (model . toE) vb
-            mi <- mapM (model . toE) vi
-
-            log Ic3Log $ "got model1: " ++ show mb ++ " " ++ show mi
+            showCheckResult ((s \/ post s) /\ c) r'
             return r'
         if r1
         then do
@@ -316,14 +322,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                 -- Cube that is in `s` but isn't in `post s`
                 assert (post s /\ c)
                 r' <- check
-
-                -- completely bullshit idea, the point is that the query is most probably unsat at this point, so model extraction fails
-                let vb = mapMaybe (toStaticallySorted @ VarF @ 'BooleanSort ) $ vars s
-                    vi = mapMaybe (toStaticallySorted @ VarF @ 'IntegralSort) $ vars s
-                mb <- mapM (model . toE) vb
-                mi <- mapM (model . toE) vi
-
-                log Ic3Log $ "got model2: " ++ show mb ++ " " ++ show mi
+                showCheckResult (post s /\ c) r'
                 return r'
             if r2
             then do
@@ -332,11 +331,67 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                 fmap (either id (const c)) . runExceptT . forM (map meets . tail . subsequences $ cs) $ \c' -> do
                     r <- lift . local $ assert (post (s /\ complement c') /\ c') >> check
                     unless r $ throwE c'
-            else local $ assert (post s) >> unsatcore c
-        else local $ assert (s \/ post s) >> unsatcore c
+            else local $ do
+                assert (post s)
+                uc <- unsatcore c
+                log Ic3Log $ "unsat core: " ++ show uc
+                return uc
+        else local $ do
+            assert (s \/ post s)
+            uc <- unsatcore c
+            log Ic3Log $ "unsat core: " ++ show uc
+            return uc
 
     post s = prime s /\ flipPrime t
     pre  c = prime c /\ t
 
-    toE :: SingI s => Var s -> e s
-    toE (IFix (Var n s)) = inject (Var n s)
+    showCheckResult :: e 'BooleanSort -> Bool -> Ic3 a e ()
+    showCheckResult c r = do
+        if r
+        then do
+            -- here, the operator @ represents "type application", which specifies explicit/concrete type arguments for a polymorphic function
+            -- call of "mapMaybe" considers as Nothing those elements of the input list that cannot be successfully type-cast to VarF 'BooleanSort
+            let arridxs = extractArrayIndexExpressions [c]
+                vb      = mapMaybe (toStaticallySorted @ VarF @ 'BooleanSort ) $ vars c
+                vi      = mapMaybe (toStaticallySorted @ VarF @ 'IntegralSort) $ vars c
+                vai     = map (\(arr, idx) -> (select (embed arr) idx)) arridxs
+            mb <- mapM (model . embed) vb
+            mi <- mapM (model . embed) vi
+            mai <- mapM model vai
+            let vmb = zip vb mb
+            let vmi = zip vi mi
+            let vmai = zip vai mai
+            log Ic3Log $ "complete model: " ++ show vmb ++ " " ++ show vmi ++ " " ++ show vmai
+        else do
+            uc <- unsatcore c
+            log Ic3Log $ "unsat core: " ++ show uc
+
+    -- somehow extract the set of all expressions that are used as array element indexes in the given formula (we assume arrays of ints indexed by ints)
+    extractArrayIndexExpressions :: [e 'BooleanSort] -> [(Var ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)]
+    extractArrayIndexExpressions = nub . concatMap extractArrIdxExprs
+
+    extractArrIdxExprs :: e 'BooleanSort -> [(Var ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)]
+    extractArrIdxExprs = flip execState [] . imapM extractArrIdxExprs'
+
+    extractArrIdxExprs' :: e i -> State [(Var ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)] (e i)
+    extractArrIdxExprs' s = case match s of
+        Just (Select is es a i) -> case match a of
+          Just (Var v _) -> case SArraySort is es %~ SArraySort SIntegralSort SIntegralSort of
+            Proved Refl -> do
+              modify ((var v, i) :)
+              return s
+            Disproved _ ->
+              return s
+          Nothing ->
+            return s
+        Just (Store is es a i e) -> case match a of
+          Just (Var v _) -> case SArraySort is es %~ SArraySort SIntegralSort SIntegralSort of
+            Proved Refl -> do
+              modify ((var v, i) :)
+              return s
+            Disproved _ ->
+              return s
+          Nothing ->
+            return s
+        Nothing ->
+          return s

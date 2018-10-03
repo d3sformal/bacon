@@ -11,6 +11,7 @@
 !src/TwoCellIc3.hs
 !src/RecMc.hs
 !src/Solver.hs
+!src/ArrayModel.hs
 !test/
 !test/CountTo5.hs
 !test/Div2Sub2.hs

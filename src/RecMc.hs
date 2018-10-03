@@ -1,4 +1,5 @@
-{-# LANGUAGE DataKinds
+{-# LANGUAGE BlockArguments
+           , DataKinds
            , DuplicateRecordFields
            , FlexibleContexts
            , GADTs
@@ -290,7 +291,12 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
 
             i' <- lift $ (en /\) <$> eliminateVars vs (e1 /\ ibound)
             p' <- lift $ (ex /\) <$> eliminateVars (map prime' vs) (complement (prime e2) /\ obound)
-            Left (Pdr.Cex cex) <- lift . lift . lift . nest $ c vs' i' (transitions t'' cs' u) (complement p')
+            r <- lift . lift . lift . nest $ c vs' i' (transitions t'' cs' u) (complement p')
+
+            let cex = case r of
+                         Left (Pdr.Cex cex') -> cex'
+                         _                   -> error "unexpected result of recursive call"
+
             lift $ concretise (b - 1) f' cex
 
     splits as = fromFoldable . P.init . tail $ splits' as []

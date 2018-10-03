@@ -183,11 +183,12 @@ runSolver f = Z3.evalZ3 . flip evalStateT (SolverContext 0 Nothing []) . go . (l
         go (c r)
 
     -- Interpolation
-    go (Free (Interpolate []  c)) = go (log Z3Log "; (compute-interpolant )")  >> go (c [])
-    go (Free (Interpolate [_] c)) = go (log Z3Log "; (compute-interpolant _)") >> go (c [])
-    go (Free (Interpolate es  c)) = do
+    go (Free (Interpolate []  c))       = go (log Z3Log "; (compute-interpolant )")  >> go (c [])
+    go (Free (Interpolate [_] c))       = go (log Z3Log "; (compute-interpolant _)") >> go (c [])
+    go (Free (Interpolate (e : es)  c)) = do
         q <- lift $ do
-            (e' : es') <- mapM toZ3 es
+            e'  <- toZ3 e
+            es' <- mapM toZ3 es
             foldM (\a g -> Z3.mkAnd . (:[g]) =<< Z3.mkInterpolant a) e' es'
 
         when (f Z3Log) $ do

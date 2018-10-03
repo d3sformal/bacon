@@ -155,7 +155,7 @@ schedt =
   --			if (a[k] <= 0) then a[k] = time_slice
   --		end for
   frame ( pc .=. 6 .&. pc' .=. 6 .&. k .<.  n .&. select a k .<=. 0 .&. a' .=. store a k 20 .&. k' .=. k .+. 1 ) .|.
-  frame ( pc .=. 6 .&. pc' .=. 6 .&. k .<.  n .&. select a k .>.  0  &. k' .=. k .+. 1 ) .|.
+  frame ( pc .=. 6 .&. pc' .=. 6 .&. k .<.  n .&. select a k .>.  0 .&. k' .=. k .+. 1 ) .|.
   frame ( pc .=. 6 .&. pc' .=. 7 .&. k .>=. n ) .|.
   
   --	end while
@@ -179,14 +179,12 @@ j = var "j"
     -- what it says: for two threads represented by 'i' and 'j', a thread 'j' further away from the current thread in the cyclic buffer did not run for a longer time
     -- plain text encoding: forall i,j @ ((i >= 0 and i < n and j >= 0 and j < n) and ((i >= cur and j <= cur) or (i >= cur and j >= i) or (i <= cur and j <= cur and j >= i))) => (b[i] <= b[j])
 schedp =
-    --pc .=. 7 .->. ( ( (i .=. 0 .&. j .=. 0) .|. (i .=. 0 .&. j .=. 1) ) .->. -- simplified property (used to collect frames)
     pc .=. 7 .->. forall [i, j] 
                                 ( ( 0 .<=. i .&. i .<. n .&.
                                     0 .<=. j .&. j .<. n .&.
                                     ( (   j .<=. cur .&. cur .<=. i   ) .|.
                                       ( cur .<=. i   .&.   i .<=. j   ) .|.
                                       (   i .<=. j   .&.   j .<=. cur ) ) ) .->. ( select b i .<=. select b j ) )
-                  --) -- closing bracket of the simplified property
 
 -- run IC3 with different properties, check whether IC3 responds with an expected Cex or Inv
 main = inv =<< runSolver logAll ( ic3 schedvs schedi schedt schedp )

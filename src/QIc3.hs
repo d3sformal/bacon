@@ -17,7 +17,8 @@ module QIc3 where
 
 import Algebra.Lattice
 import Control.Arrow
-import Control.Lens hiding ((%~), pre, imapM)
+import Control.Comonad.Trans.Coiter
+import Control.Lens hiding ((%~), pre, imapM, Const)
 import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
@@ -95,6 +96,7 @@ ic3 :: forall e f. ( ComplementedLattice (e 'BooleanSort)
                    , e ~ IFix f
                    , VarF :<: f
                    , VarF :<<: f
+                   , ArithmeticF :<: f
                    , ArrayF :<: f
                    , EqualityF :<: f
                    , ConjunctionF :<: f
@@ -144,9 +146,12 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                 mapM_ (log Ic3Log . ("\t\t" ++) . show) trace'
                 log Ic3Log ""
                 r <- nonEmpty (meets trace')
-                if r then throwE . Cex =<< concretise trace'
+                if r then throwE . Cex =<< concretiseTrace trace'
                 else do
-                    is <- concatMap (literals . unprime) <$> interpolate trace'
+                    log Ic3Log $ "trace: " ++ show trace'
+                    trace'' <- generaliseTrace trace'
+                    log Ic3Log $ "generalised trace: " ++ show trace''
+                    is <- concatMap (literals . unprime) <$> interpolate trace''
                     log Ic3Log "\trefine: "
                     mapM_ (log Ic3Log . ("\t\t" ++) . show) is
                     addPredicates is
@@ -206,8 +211,8 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
     flipPrime :: forall s. e s -> e s
     flipPrime = (`substitute` Substitution (\v -> case match v of { Just (Var n s) -> Just . inject $ Var (if last n == '\'' then filter (/= '\'') n else n ++ "'") s; _ -> Nothing }))
 
-    concretise :: [e 'BooleanSort] -> Ic3 a e [e 'BooleanSort]
-    concretise tr = local $ do
+    concretiseTrace :: [e 'BooleanSort] -> Ic3 a e [e 'BooleanSort]
+    concretiseTrace tr = local $ do
         assert (meets tr)
 
         let arridxs = extractArrayIndexExpressions tr
@@ -222,6 +227,31 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
             c <- fmap meets . forM ais $ \(arr, idx) -> (select arr idx .=.) <$> model (prime' s (select arr idx))
 
             return (a /\ b /\ c)
+
+    generaliseTrace :: [e 'BooleanSort] -> Ic3 a e [e 'BooleanSort]
+    generaliseTrace [] = error "the impossible happend"
+    generaliseTrace (i : t) = do
+        let i' = abstractConstants i
+            t' = i' : t
+
+        r <- nonEmpty $ meets t'
+
+        return $ if r then t else t'
+
+    abstractConstants :: forall (s :: Sort). e s -> e s
+    abstractConstants e =
+        let freshVars = map (var :: VariableName -> e 'IntegralSort) . toList $ freenames e
+            constants = cnsts e in
+
+            -- consider avoiding abstraction of pc = 0
+
+            substitute e (freshVars `forN` constants) where
+
+                toList :: Coiter a -> [a]
+                toList c = let (h, t) = runCoiter c in h : toList t
+
+                forN :: forall (s :: Sort). [e s] -> [e s] -> Substitution f
+                forN as bs = mconcat $ zipWith for as bs
 
     cube :: Ic3 a e (e 'BooleanSort)
     cube = do

@@ -408,14 +408,4 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
     extractArrayIndexExpressions = nub . concatMap extractArrIdxExprs
 
     extractArrIdxExprs :: e 'BooleanSort -> [(e ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)]
-    extractArrIdxExprs = mapMaybe filterIntInt . accesses where
-        filterIntInt :: DynamicallyIndexedArrayAccess f -> Maybe (e ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)
-        filterIntInt (DynamicallyIndexedArrayAccess aa) = do
-            StaticallyIndexedArrayAccess (IT2 (a, i)) <- toStaticallySorted aa
-            a' <- filterInt a
-            return (a', i)
-
-        filterInt :: DynamicallyValuedArrayAccess f 'IntegralSort -> Maybe (e ('ArraySort 'IntegralSort 'IntegralSort))
-        filterInt (DynamicallyValuedArrayAccess aa) = do
-            StaticallyValuedArrayAccess a <- toStaticallySorted aa
-            return a
+    extractArrIdxExprs = mapMaybe toStaticallySortedArrayAccess . accesses

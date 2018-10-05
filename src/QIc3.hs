@@ -121,6 +121,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         local $ do
             log Ic3Log "init: enumerating the initial state with negated property"
             bs <- enumerate (i /\ complement p)
+            log Ic3Log $ "init: bad states = " ++ show bs
             unless (null bs) $ throwE (Cex [head bs])
 
     bad :: Ic3 Cex e ()
@@ -138,11 +139,12 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         n  <- getCurrentFrameNum
         log Ic3Log "bad': enumerating post-frame with negated property"
         bs <- enumerate (post c /\ complement p)
+        log Ic3Log $ "bad': bad states = " ++ show bs
         unless (null bs) $ do
             log Ic3Log $ "\tpost(f" ++ show n ++ "): " ++ show (post c) ++ "\n"
             catchE (mapM_ (block []) bs) $ \(Cex trace) -> do
                 let trace' = zipWith ($) (iterate (prime .) id) (map (/\ t) (P.init trace) ++ [last trace])
-                log Ic3Log "\tabs cex: "
+                log Ic3Log "\tabstract counterexample: "
                 mapM_ (log Ic3Log . ("\t\t" ++) . show) trace'
                 log Ic3Log ""
                 r <- nonEmpty (meets trace')
@@ -152,7 +154,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                     trace'' <- generaliseTrace trace'
                     log Ic3Log $ "generalised trace: " ++ show trace''
                     is <- concatMap (literals . unprime) <$> interpolate trace''
-                    log Ic3Log "\trefine: "
+                    log Ic3Log "\trefinement (added predicates): "
                     mapM_ (log Ic3Log . ("\t\t" ++) . show) is
                     addPredicates is
                     qfps <- getQuantifierFreePredicates
@@ -277,6 +279,8 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         -- but we can't simply add the constraint without needing to add AbsRelInd from Griggio et al. TACAS14
         pbs <- enumerate (c {- /\ complement b -} /\ pre b)
 
+        log Ic3Log $ "block: prev bad states = " ++ show pbs
+
         unless (null pbs) $
             if bot
             then throwE (Cex $ head pbs : trace')
@@ -296,8 +300,10 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
     blockHenceBack :: e 'BooleanSort -> Ic3 a e ()
     blockHenceBack s = do
         f <- getCurrentFrame
+        n <- getCurrentFrameNum
         r <- local $ assert (f /\ s) >> check
         when r $ do
+            log Ic3Log $ "blocking in frame " ++ show n ++ " : " ++ show s
             modifyFrame (/\ complement s)
         bot <- isFirstFrame
         unless bot $ do
@@ -327,6 +333,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
 
         l <- isLastFrame
         unless l $ do
+            log Ic3Log "fix': inductivity check over cubes blocked in the current frame"
             n <- getNextFrame
             ind' <- return . complement . joins . nub -- block unique
                 <=< mapM (generalise c)               -- generalise

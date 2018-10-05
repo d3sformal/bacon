@@ -89,7 +89,7 @@ ic3 :: forall e f. ( ComplementedLattice (e 'BooleanSort)
                    , IEq1 f
                    , IShow f
                    , IFoldable f )
-    => [DynamicallySorted f]
+    => [DynamicallySorted e]
     -> e 'BooleanSort
     -> e 'BooleanSort
     -> e 'BooleanSort

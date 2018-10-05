@@ -50,9 +50,9 @@ instance Show (e 'BooleanSort) => Show (Inv e) where
 data Query    e = Query Int FunctionName (e 'BooleanSort) (e 'BooleanSort)
 data Call     f = Call { functionName :: FunctionName, placeHolder :: IFix f 'BooleanSort, arguments :: Substitution f }
 data Function f = Function { functionName :: FunctionName
-                           , inputs       :: [DynamicallySorted f]
-                           , locals       :: [DynamicallySorted f]
-                           , outputs      :: [DynamicallySorted f]
+                           , inputs       :: [DynamicallySortedFix f]
+                           , locals       :: [DynamicallySortedFix f]
+                           , outputs      :: [DynamicallySortedFix f]
                            , entry        :: IFix f 'BooleanSort
                            , transition   :: IFix f 'BooleanSort
                            , exit         :: IFix f 'BooleanSort
@@ -125,7 +125,7 @@ recmc :: forall e f. ( ComplementedLattice (e 'BooleanSort)
                      , IFunctor f
                      , IEq1 f
                      , IShow f )
-      => ([DynamicallySorted f] -> e 'BooleanSort -> e 'BooleanSort -> e 'BooleanSort -> Solver e (Either (Pdr.Cex e) (Pdr.Inv e)))
+      => ([DynamicallySorted e] -> e 'BooleanSort -> e 'BooleanSort -> e 'BooleanSort -> Solver e (Either (Pdr.Cex e) (Pdr.Inv e)))
       -> FunctionName
       -> e 'BooleanSort
       -> e 'BooleanSort
@@ -306,7 +306,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
     prime :: forall s. e s -> e s
     prime = (`substitute` Substitution (\v -> case match v of { Just (Var n vs) -> Just . inject $ Var (n ++ "'") vs; _ -> Nothing }))
 
-    prime' :: DynamicallySorted f -> DynamicallySorted f
+    prime' :: DynamicallySorted e -> DynamicallySorted e
     prime' (DynamicallySorted es e) = DynamicallySorted es (prime e)
 
     foldPath :: e 'BooleanSort -> [e 'BooleanSort] -> e 'BooleanSort -> e 'BooleanSort
@@ -316,7 +316,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
     unprime :: forall s. e s -> e s
     unprime = (`substitute` Substitution (\v -> case match v of { Just (Var n vs) -> Just . inject $ Var (filter (/= '\'') n) vs; _ -> Nothing }))
 
-    eliminateVars :: forall a. [DynamicallySorted f] -> e 'BooleanSort -> RecMc a e (e 'BooleanSort)
+    eliminateVars :: forall a. [DynamicallySorted e] -> e 'BooleanSort -> RecMc a e (e 'BooleanSort)
     eliminateVars vs f = do
         let bs = mapMaybe toStaticallySorted vs :: [e 'BooleanSort]
             is = mapMaybe toStaticallySorted vs :: [e 'IntegralSort]

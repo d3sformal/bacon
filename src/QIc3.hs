@@ -106,7 +106,7 @@ ic3 :: forall e f. ( ComplementedLattice (e 'BooleanSort)
                    , IShow f
                    , IFoldable f
                    , ITraversable f )
-    => [DynamicallySorted f]
+    => [DynamicallySorted e]
     -> e 'BooleanSort
     -> e 'BooleanSort
     -> e 'BooleanSort
@@ -222,7 +222,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         forM [0 .. length tr - 1] $ \s -> do
             let bs = mapMaybe toStaticallySorted vs :: [e 'BooleanSort]
                 is = mapMaybe toStaticallySorted vs :: [e 'IntegralSort]
-                ais = nub $ map (\(arr, idx) -> (unprime (embed arr), unprime idx)) arridxs
+                ais = nub $ map (\(arr, idx) -> (unprime arr, unprime idx)) arridxs
 
             a <- fmap meets . forM bs $ \v -> model (prime' s v) >>= \b -> if b == top then return v else return (complement v)
             b <- fmap meets . forM is $ \v -> (v .=.) <$> model (prime' s v)
@@ -389,9 +389,9 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
             -- here, the operator @ represents "type application", which specifies explicit/concrete type arguments for a polymorphic function
             -- call of "mapMaybe" considers as Nothing those elements of the input list that cannot be successfully type-cast to VarF 'BooleanSort
             let arridxs = extractArrayIndexExpressions [c]
-                vb      = mapMaybe (toStaticallySorted @ VarF @ 'BooleanSort ) $ vars c
-                vi      = mapMaybe (toStaticallySorted @ VarF @ 'IntegralSort) $ vars c
-                vai     = map (\(arr, idx) -> (select (embed arr) idx)) arridxs
+                vb      = mapMaybe (toStaticallySorted @ Var @ 'BooleanSort ) $ vars c
+                vi      = mapMaybe (toStaticallySorted @ Var @ 'IntegralSort) $ vars c
+                vai     = map (\(arr, idx) -> (select arr idx)) arridxs
             mb <- mapM (model . embed) vb
             mi <- mapM (model . embed) vi
             mai <- mapM model vai
@@ -404,31 +404,18 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
             log Ic3Log $ "unsat core: " ++ show uc
 
     -- somehow extract the set of all expressions that are used as array element indexes in the given formula (we assume arrays of ints indexed by ints)
-    extractArrayIndexExpressions :: [e 'BooleanSort] -> [(Var ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)]
+    extractArrayIndexExpressions :: [e 'BooleanSort] -> [(e ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)]
     extractArrayIndexExpressions = nub . concatMap extractArrIdxExprs
 
-    extractArrIdxExprs :: e 'BooleanSort -> [(Var ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)]
-    extractArrIdxExprs = flip execState [] . imapM extractArrIdxExprs'
+    extractArrIdxExprs :: e 'BooleanSort -> [(e ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)]
+    extractArrIdxExprs = mapMaybe filterIntInt . accesses where
+        filterIntInt :: DynamicallyIndexedArrayAccess f -> Maybe (e ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)
+        filterIntInt (DynamicallyIndexedArrayAccess aa) = do
+            StaticallyIndexedArrayAccess (IT2 (a, i)) <- toStaticallySorted aa
+            a' <- filterInt a
+            return (a', i)
 
-    extractArrIdxExprs' :: e i -> State [(Var ('ArraySort 'IntegralSort 'IntegralSort), e 'IntegralSort)] (e i)
-    extractArrIdxExprs' s = case match s of
-        Just (Select is es a i) -> case match a of
-          Just (Var v _) -> case SArraySort is es %~ SArraySort SIntegralSort SIntegralSort of
-            Proved Refl -> do
-              modify ((var v, i) :)
-              return s
-            Disproved _ ->
-              return s
-          Nothing ->
-            return s
-        Just (Store is es a i e) -> case match a of
-          Just (Var v _) -> case SArraySort is es %~ SArraySort SIntegralSort SIntegralSort of
-            Proved Refl -> do
-              modify ((var v, i) :)
-              return s
-            Disproved _ ->
-              return s
-          Nothing ->
-            return s
-        Nothing ->
-          return s
+        filterInt :: DynamicallyValuedArrayAccess f 'IntegralSort -> Maybe (e ('ArraySort 'IntegralSort 'IntegralSort))
+        filterInt (DynamicallyValuedArrayAccess aa) = do
+            StaticallyValuedArrayAccess a <- toStaticallySorted aa
+            return a

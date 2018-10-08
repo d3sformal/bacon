@@ -232,13 +232,13 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
 
     generaliseTrace :: [e 'BooleanSort] -> Ic3 a e [e 'BooleanSort]
     generaliseTrace [] = error "the impossible happend"
-    generaliseTrace (i : t) = do
-        let i' = abstractConstants i
-            t' = i' : t
+    generaliseTrace t@(i : t') = do
+        let i'  = abstractConstants i
+            t'' = i' : t'
 
-        r <- nonEmpty $ meets t'
+        r <- nonEmpty $ meets t''
 
-        return $ if r then t else t'
+        return $ if r then t else t''
 
     abstractConstants :: forall (s :: Sort). e s -> e s
     abstractConstants e =

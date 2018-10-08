@@ -151,9 +151,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                 if r then throwE . Cex =<< concretiseTrace trace'
                 else do
                     log Ic3Log $ "trace: " ++ show trace'
-                    trace'' <- generaliseTrace trace'
-                    log Ic3Log $ "generalised trace: " ++ show trace''
-                    is <- concatMap (literals . unprime) <$> interpolate trace''
+                    is <- interpolateTrace trace'
                     log Ic3Log "\trefinement (added predicates): "
                     mapM_ (log Ic3Log . ("\t\t" ++) . show) is
                     addPredicates is
@@ -230,30 +228,36 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
 
             return (a /\ b /\ c)
 
-    generaliseTrace :: [e 'BooleanSort] -> Ic3 a e [e 'BooleanSort]
-    generaliseTrace [] = error "the impossible happend"
-    generaliseTrace t@(i : t') = do
-        let i'  = abstractConstants i
-            t'' = i' : t'
+    interpolateTrace :: [e 'BooleanSort] -> Ic3 a e [e 'BooleanSort]
+    interpolateTrace t = concatMap (literals . unprime) . concat <$> mapM interpolateStep steps where
+        interpolateStep :: ([e 'BooleanSort], [e 'BooleanSort]) -> Ic3 a e [e 'BooleanSort]
+        interpolateStep (la, lb) = do
+            let a  = meets la
+                b  = meets lb
+                a' = abstract a
 
-        r <- nonEmpty $ meets t''
+            r <- empty $ a' /\ b
 
-        return $ if r then t else t''
+            if r then interpolate [a', b] else interpolate [a, b]
 
-    abstractConstants :: forall (s :: Sort). e s -> e s
-    abstractConstants e =
+        abstract     = constantAbstraction (meets t)
+        cuts []      = []
+        cuts [h]     = []
+        cuts (h : t) = ([h], t) : map (\(p, s) -> (h : p, s)) (cuts t)
+        steps        = cuts t
+
+    constantAbstraction :: forall (s :: Sort). e s -> (forall (s' :: Sort). e s' -> e s')
+    constantAbstraction e =
         let freshVars = map (var :: VariableName -> e 'IntegralSort) . toList $ freenames e
-            constants = cnsts e in
+            constants = cnsts e
 
-            -- consider avoiding abstraction of pc = 0
+            toList :: Coiter a -> [a]
+            toList c = let (h, t) = runCoiter c in h : toList t
 
-            substitute e (freshVars `forN` constants) where
+            forN :: forall (s :: Sort). [e s] -> [e s] -> Substitution f
+            forN as bs = mconcat $ zipWith for as bs in
 
-                toList :: Coiter a -> [a]
-                toList c = let (h, t) = runCoiter c in h : toList t
-
-                forN :: forall (s :: Sort). [e s] -> [e s] -> Substitution f
-                forN as bs = mconcat $ zipWith for as bs
+            (`substitute` (freshVars `forN` constants))
 
     cube :: Ic3 a e (e 'BooleanSort)
     cube = do

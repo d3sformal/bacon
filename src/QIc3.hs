@@ -151,9 +151,9 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                 if r then throwE . Cex =<< concretiseTrace trace'
                 else do
                     log Ic3Log $ "trace: " ++ show trace'
-                    trace'' <- generaliseTrace trace'
+                    (trace'', con) <- generaliseTrace trace'
                     log Ic3Log $ "generalised trace: " ++ show trace''
-                    is <- concatMap (literals . unprime) <$> interpolate trace''
+                    is <- concatMap (literals . unprime . con) <$> interpolate trace''
                     log Ic3Log "\trefinement (added predicates): "
                     mapM_ (log Ic3Log . ("\t\t" ++) . show) is
                     addPredicates is
@@ -230,30 +230,51 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
 
             return (a /\ b /\ c)
 
-    generaliseTrace :: [e 'BooleanSort] -> Ic3 a e [e 'BooleanSort]
+    -- consider special treatment of pc constants
+    -- iterate over t and find max prefix such that when abstracted the trace is still unfeasible
+    generaliseTrace :: [e 'BooleanSort] -> (forall (s :: Sort). Ic3 a e ([e 'BooleanSort], e s -> e s))
     generaliseTrace [] = error "the impossible happend"
-    generaliseTrace t@(i : t') = do
-        let i'  = abstractConstants i
-            t'' = i' : t'
+    generaliseTrace t = do
+        fallbackOrGeneralisedReversed <- runExceptT $ foldM greedyGen [] (suffices t)
 
-        r <- nonEmpty $ meets t''
+        let r = either id (addConstraints . reverse) fallbackOrGeneralisedReversed
 
-        return $ if r then t else t''
+        return (r, con) where
 
-    abstractConstants :: forall (s :: Sort). e s -> e s
-    abstractConstants e =
-        let freshVars = map (var :: VariableName -> e 'IntegralSort) . toList $ freenames e
-            constants = cnsts e in
+            suffices [] = []
+            suffices s@(_ : t) = s : suffices t
 
-            -- consider avoiding abstraction of pc = 0
+            greedyGen prefix   []           = return prefix
+            greedyGen prefix s@(n : suffix) = do
+                let n' = abs n
 
-            substitute e (freshVars `forN` constants) where
+                r <- lift . empty $ meets prefix /\ n' /\ meets suffix
 
-                toList :: Coiter a -> [a]
-                toList c = let (h, t) = runCoiter c in h : toList t
+                if r then return (n' : prefix) else throwE (reverse prefix ++ s)
 
-                forN :: forall (s :: Sort). [e s] -> [e s] -> Substitution f
-                forN as bs = mconcat $ zipWith for as bs
+            addConstraints [] = error "no! this could not have happened"
+            addConstraints (i : t) = i /\ abs (meets [ cnst a .<. cnst b | a <- constants', b <- constants', a < b ]) : t
+
+            e = meets t
+
+            freshVars  = map (var :: VariableName -> e 'IntegralSort) . toList $ freenames e
+            constants  = cnsts e
+            constants' = map toInt constants
+
+            abs, con :: forall (s :: Sort). e s -> e s
+            abs = (`substitute` (freshVars `forN` constants))
+            con = (`substitute` (constants `forN` freshVars))
+
+            toList :: Coiter a -> [a]
+            toList c = let (h, t) = runCoiter c in h : toList t
+
+            toInt :: e 'IntegralSort -> Int
+            toInt c = case match c of
+                Just (Const n) -> n
+                _              -> error "no time to do this cleanly"
+
+            forN :: forall (s :: Sort). [e s] -> [e s] -> Substitution f
+            forN as bs = mconcat $ zipWith for as bs
 
     cube :: Ic3 a e (e 'BooleanSort)
     cube = do

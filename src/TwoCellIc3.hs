@@ -116,7 +116,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
     bad' :: Ic3 Cex e ()
     bad' = do
         c  <- getCurrentFrame
-        n  <- getCurrentFrameNum
+        --n  <- getCurrentFrameNum
         bs <- enumerate (post c /\ complement p)
         log Ic3Log $ "about to enum: " ++ show (take 10 bs) ++ "..."
         unless (null bs) $ do
@@ -215,11 +215,11 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
             ak1 = var "ak1" :: e 'IntegralSort
             ak2 = var "ak2" :: e 'IntegralSort
 
-        pre <- nonEmpty q
+        x <- nonEmpty q
 
         --log Ic3Log $ "pre: " ++ show q ++ ": " ++ (if pre then "" else "non-") ++ "empty"
 
-        unless pre $ do
+        unless x $ do
             pbsa <- enumerate (q /\ k1 .=. prefix "A" k1 /\ ak1 .=. prefix "A" ak1 /\ k2 .=. prefix "A" k2 /\ ak2 .=. prefix "A" ak2)
             pbsb <- enumerate (q /\ k1 .=. prefix "B" k1 /\ ak1 .=. prefix "B" ak1 /\ k2 .=. prefix "B" k2 /\ ak2 .=. prefix "B" ak2)
             pbsc <- enumerate (q /\ k1 .=. prefix "C" k1 /\ ak1 .=. prefix "C" ak1 /\ k2 .=. prefix "C" k2 /\ ak2 .=. prefix "C" ak2)

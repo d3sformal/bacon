@@ -16,7 +16,7 @@
 module QIc3 where
 
 import Algebra.Lattice
-import Control.Arrow
+import Control.Arrow hiding (arr)
 import Control.Comonad.Trans.Coiter
 import Control.Lens hiding ((%~), pre, imapM, Const)
 import Control.Monad
@@ -27,16 +27,14 @@ import Control.Zipper
 import Data.Expression
 import Data.List hiding (and, or, init)
 import Data.Maybe
-import Data.Singletons
-import Data.Singletons.Decide
 import Data.Typeable
 import Prelude hiding (and, or, not, log, init)
 
 import Pdr
 import Solver
 
-import qualified Data.Functor.Const as F
 import qualified Prelude as P
+import qualified Data.Map as M
 
 data Ic3State e = Ic3State { _frames     :: Top :>> [e 'BooleanSort] :>> e 'BooleanSort
                            , _predicates :: [e 'BooleanSort] }
@@ -143,7 +141,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
         unless (null bs) $ do
             log Ic3Log $ "\tpost(f" ++ show n ++ "): " ++ show (post c) ++ "\n"
             catchE (mapM_ (block []) bs) $ \(Cex trace) -> do
-                let trace' = zipWith ($) (iterate (prime .) id) (map (/\ t) (P.init trace) ++ [last trace])
+                let trace' = interleave trace (iterate prime t)
                 log Ic3Log "\tabstract counterexample: "
                 mapM_ (log Ic3Log . ("\t\t" ++) . show) trace'
                 log Ic3Log ""
@@ -164,6 +162,11 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
                     log Ic3Log ""
                     goToLastFrame
             bad'
+
+    interleave []  _             = []
+    interleave [a] _             = [a]
+    interleave _   []            = []
+    interleave (a : as) (b : bs) = a : b : interleave as bs
 
     empty :: e 'BooleanSort -> Ic3 a e Bool
     empty s = P.not <$> nonEmpty s
@@ -229,35 +232,40 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
             return (a /\ b /\ c)
 
     interpolateTrace :: [e 'BooleanSort] -> Ic3 a e [e 'BooleanSort]
-    interpolateTrace t = concatMap (literals . unprime) . concat <$> mapM interpolateStep steps where
+    interpolateTrace tr = concatMap (literals . unprime) . concat <$> mapM interpolateStep steps where
         interpolateStep :: ([e 'BooleanSort], [e 'BooleanSort]) -> Ic3 a e [e 'BooleanSort]
         interpolateStep (la, lb) = do
             let a  = meets la
                 b  = meets lb
-                a' = abstract a
+                a' = abstract a /\ freshVarsConstraint
 
             r <- empty $ a' /\ b
 
             if r then interpolate [a', b] else interpolate [a, b]
 
-        abstract     = constantAbstraction (meets t)
-        cuts []      = []
-        cuts [h]     = []
-        cuts (h : t) = ([h], t) : map (\(p, s) -> (h : p, s)) (cuts t)
-        steps        = cuts t
+        abstract      = (`substitute` (freshVars `forN` constants))
+        abstract'     = fromJust . (`M.lookup` M.fromList (zip constants' freshVars))
+        cuts []       = []
+        cuts [_]      = []
+        cuts (s : ss) = ([s], ss) : map (\(prefix, suffix) -> (s : prefix, suffix)) (cuts ss)
+        steps         = cuts tr
 
-    constantAbstraction :: forall (s :: Sort). e s -> (forall (s' :: Sort). e s' -> e s')
-    constantAbstraction e =
-        let freshVars = map (var :: VariableName -> e 'IntegralSort) . toList $ freenames e
-            constants = cnsts e
+        e = meets tr
 
-            toList :: Coiter a -> [a]
-            toList c = let (h, t) = runCoiter c in h : toList t
+        freshVars  = map (var :: VariableName -> e 'IntegralSort) . toList $ freenames e
+        constants  = cnsts e
+        constants' = map toInt constants
 
-            forN :: forall (s :: Sort). [e s] -> [e s] -> Substitution f
-            forN as bs = mconcat $ zipWith for as bs in
+        freshVarsConstraint = meets $ [ abstract' a .<. abstract' b | a <- constants', b <- constants', a < b ]
 
-            (`substitute` (freshVars `forN` constants))
+        toList c = let (a, as) = runCoiter c in a : toList as
+
+        toInt :: e 'IntegralSort -> Int
+        toInt  c = case match c of
+          Just (Const n) -> n
+          _              -> error "the impossible happened"
+
+        forN as bs = mconcat $ zipWith for as bs
 
     cube :: Ic3 a e (e 'BooleanSort)
     cube = do

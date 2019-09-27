@@ -79,7 +79,7 @@ data SolverContext = SolverContext { _indentation :: Int, _lastlog :: Maybe Type
 makeLenses ''SolverContext
 
 runSolver :: forall f a. ( IToZ3 f, IFromZ3 f, IShow f ) => (forall t. Typeable t => t -> Bool) -> Solver (IFix f) a -> IO a
-runSolver f = Z3.evalZ3 . flip evalStateT (SolverContext 0 Nothing []) . go . (log Z3Log "(set-option :produce-unsat-cores true)" >>) where
+runSolver f = Z3.evalZ3 . flip evalStateT (SolverContext 0 Nothing [[]]) . go . (log Z3Log "(set-option :produce-unsat-cores true)" >>) where
     go :: Solver (IFix f) b -> StateT SolverContext Z3.Z3 b
 
     -- Pure values

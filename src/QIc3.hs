@@ -235,7 +235,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (lit
     interpolateTrace :: [e 'BooleanSort] -> Ic3 a e [e 'BooleanSort]
     interpolateTrace tr = concatMap (literals . unprime) . concat <$> mapM interpolateStep steps where
         interpolateStep :: ([e 'BooleanSort], [e 'BooleanSort]) -> Ic3 a e [e 'BooleanSort]
-        interpolateStep (la, lb) = do
+        interpolateStep (la, lb) = local $ do
             let a  = meets la
                 b  = meets lb
                 a' = abstract a /\ freshVarsConstraint

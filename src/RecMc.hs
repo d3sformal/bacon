@@ -13,6 +13,7 @@
 module RecMc where
 
 import Algebra.Lattice
+import Algebra.Heyting
 import Control.Lens hiding (over, under, to, imap)
 import Control.Applicative
 import Control.Monad
@@ -71,7 +72,7 @@ type RecMc r e a = ExceptT (r e) (StateT (RecMcState e) (Solver e)) a
 getDepth :: RecMc a e Int
 getDepth = lift $ use depth
 
-incDepth :: ComplementedLattice (e 'BooleanSort) => RecMc a e Int
+incDepth :: Heyting (e 'BooleanSort) => RecMc a e Int
 incDepth = do
     d <- getDepth
 
@@ -105,10 +106,10 @@ getUnderapproximations d = lift $ (! d) <$> use underapproximation
 getOverapproximations :: Int -> RecMc a e (Map FunctionName (e 'BooleanSort))
 getOverapproximations d = lift $ (! d) <$> use overapproximation
 
-addUnderapproximation :: JoinSemiLattice (e 'BooleanSort) => Int -> FunctionName -> e 'BooleanSort -> RecMc a e ()
+addUnderapproximation :: BoundedJoinSemiLattice (e 'BooleanSort) => Int -> FunctionName -> e 'BooleanSort -> RecMc a e ()
 addUnderapproximation d f u = lift $ underapproximation . ix d . ix f %= (\/ u)
 
-addOverapproximation :: MeetSemiLattice (e 'BooleanSort) => Int -> FunctionName -> e 'BooleanSort -> RecMc a e ()
+addOverapproximation :: BoundedMeetSemiLattice (e 'BooleanSort) => Int -> FunctionName -> e 'BooleanSort -> RecMc a e ()
 addOverapproximation d f o = lift $ overapproximation . ix d . ix f %= (/\ o)
 
 data RecMcLog = RecMcLog deriving ( Eq, Typeable )
@@ -116,7 +117,7 @@ data RecMcLog = RecMcLog deriving ( Eq, Typeable )
 logRecMc :: Typeable b => b -> Bool
 logRecMc = logExactly RecMcLog
 
-recmc :: forall e f. ( ComplementedLattice (e 'BooleanSort)
+recmc :: forall e f. ( Heyting (e 'BooleanSort)
                      , e ~ IFix f
                      , VarF                       :<: f
                      , ExistentialF 'BooleanSort  :<: f
@@ -167,7 +168,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                 addUnderapproximation b f newU
                 popQueries $ \(Query b' f' i'' p'') -> if f /= f' then return False else do
                     admitsWitness     <- realised (head cexu /\ i'')
-                    containsViolation <- realised (last cexu /\ complement p'')
+                    containsViolation <- realised (last cexu /\ neg p'')
                     return $ b' >= b && admitsWitness && containsViolation
                 d' <- done
                 when d' $ throwE . Cex =<< concretise b f cexu
@@ -190,8 +191,8 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                         log RecMcLog $ "proven: yes, new overapproximation of " ++ f ++ "@" ++ show b ++ ": " ++ show newO ++ "\n"
                         addOverapproximation b f newO
                         popQueries $ \(Query b' f' i'' p'') -> if f /= f' then return False else do
-                            subsumesInitial <- notRealised (complement invo /\ i'')
-                            ensuresProperty <- notRealised (invo /\ complement p'')
+                            subsumesInitial <- notRealised (neg invo /\ i'')
+                            ensuresProperty <- notRealised (invo /\ neg p'')
                             return $ b' <= b && subsumesInitial && ensuresProperty
 
                     -- Otherwise find a call along the abstract counterexample,
@@ -210,12 +211,12 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                             Call f' ph sub <- fromFoldable $ cs
 
                             -- Select the function being called at this step
-                            guard =<< lift (notRealised (e1 /\ t /\ complement ph /\ prime e2))
+                            guard =<< lift (notRealised (e1 /\ t /\ neg ph /\ prime e2))
 
-                            let upath = foldPath i' (replicate (length prefix - 1) to ++ replicate (length suffix) tu) (complement p')
-                                opath = foldPath i' (replicate (length prefix) to ++ replicate (length suffix - 1) tu) (complement p')
+                            let upath = foldPath i' (replicate (length prefix - 1) to ++ replicate (length suffix) tu) (neg p')
+                                opath = foldPath i' (replicate (length prefix) to ++ replicate (length suffix - 1) tu) (neg p')
                                 ipath = foldPath i' (replicate (length prefix - 1) to ++ [t `substitute` mconcat ( ibound            `for` ph : map (\(Call _ ph' _) -> bottom `for` ph') cs)]) top
-                                ppath = foldPath i' (replicate (length prefix - 1) to ++ [t `substitute` mconcat ((ibound /\ obound) `for` ph : map (\(Call _ ph' _) -> bottom `for` ph') cs)] ++ replicate (length suffix - 1) tu) (complement p')
+                                ppath = foldPath i' (replicate (length prefix - 1) to ++ [t `substitute` mconcat ((ibound /\ obound) `for` ph : map (\(Call _ ph' _) -> bottom `for` ph') cs)] ++ replicate (length suffix - 1) tu) (neg p')
 
                                 is' = inputs  (s ! f')
                                 os' = outputs (s ! f')
@@ -244,7 +245,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
                             p'' <- lift $ unprime . (`substitute` uncallee) <$> eliminateVars (concat (take (length prefix + length suffix) (map ($ vs) ps'))) ppath
 
                             -- Generate recursive query
-                            return $ Query (b - 1) f' (en' /\ i'') (complement ex' \/ complement p'')
+                            return $ Query (b - 1) f' (en' /\ i'') (neg ex' \/ neg p'')
                         mapM_ pushQuery qs
         safe'
 
@@ -252,7 +253,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
     notRealised e = P.not <$> realised e
 
     abstractionFromCounterexample (Function _ is ls os _ _ _ _) t cs i' p' = do
-        let tr  = foldPath i' (take (length cs - 1) $ iterate prime t) (complement p')
+        let tr  = foldPath i' (take (length cs - 1) $ iterate prime t) (neg p')
             vs  = concat $ zipWith ($) ps' (replicate (length cs - 1) (is ++ ls ++ os))
             ps' = iterate (map prime' .) id
         unprime <$> eliminateVars ((vs \\ is) \\ (ps' !! (length cs - 1)) os) tr
@@ -261,7 +262,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
         en' <- eliminateVars (map prime' (is ++ ls ++ os)) (t /\ en)
         i'  <- eliminateVars (ls ++ os) (inv /\ en')
         p'  <- eliminateVars ls (inv /\ ex)
-        return (complement i' \/ p')
+        return (neg i' \/ p')
 
     concretise b f tr = head <$> toList (go tr) where
         Function _ is ls os _ t _ cs = s ! f
@@ -290,8 +291,8 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
             guard =<< lift (notRealised (e1 /\ t' /\ prime e2))
 
             i' <- lift $ (en /\) <$> eliminateVars vs (e1 /\ ibound)
-            p' <- lift $ (ex /\) <$> eliminateVars (map prime' vs) (complement (prime e2) /\ obound)
-            r <- lift . lift . lift . nest $ c vs' i' (transitions t'' cs' u) (complement p')
+            p' <- lift $ (ex /\) <$> eliminateVars (map prime' vs) (neg (prime e2) /\ obound)
+            r <- lift . lift . lift . nest $ c vs' i' (transitions t'' cs' u) (neg p')
 
             let cex = case r of
                          Left (Pdr.Cex cex') -> cex'
@@ -352,7 +353,7 @@ recmc c m i p s = flip evalStateT (RecMcState 0 [] fs under over) . pdr $ Pdr in
         let Function _ is ls os en t ex cs = s ! f
             to = transitions t cs abs
 
-        return (is ++ ls ++ os, en, to, complement ex \/ abs ! f)
+        return (is ++ ls ++ os, en, to, neg ex \/ abs ! f)
 
     pushInductive b f = do
         r <- isInductive b f

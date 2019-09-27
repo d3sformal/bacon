@@ -17,10 +17,10 @@ library
                        Solver
   build-depends:       base >=4.11 && <4.13,
                        containers >=0.5 && <0.7,
-                       expressions >=0.4 && <0.5,
-                       expressions-z3 >=0.4 && <0.5,
+                       expressions >=0.5 && <0.6,
+                       expressions-z3 >=0.5 && <0.6,
                        free >=4.12 && <5.2,
-                       lattices >=1.6 && <1.8,
+                       lattices >=2 && <2.1,
                        lens >=4.15 && <4.18,
                        list-t >=1.0 && <1.1,
                        singletons >=2.2 && <2.6,

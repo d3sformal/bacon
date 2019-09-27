@@ -14,6 +14,7 @@
 
 module TwoCellIc3 where
 
+import Algebra.Heyting
 import Algebra.Lattice
 import Control.Arrow
 import Control.Lens hiding ((%~), pre)
@@ -69,15 +70,15 @@ getCurrentFrameNum = lift $ subtract 1 . uncurry (-) . (teeth &&& tooth) <$> use
 getPredicates :: Ic3 a e [e 'BooleanSort]
 getPredicates = lift $ use predicates
 
-addPredicates :: ComplementedLattice (e 'BooleanSort) => Eq (e 'BooleanSort) => [e 'BooleanSort] -> Ic3 a e ()
-addPredicates ps = lift $ predicates %= nubBy (\a b -> a == b || a == complement b) . (++ ps)
+addPredicates :: Heyting (e 'BooleanSort) => Eq (e 'BooleanSort) => [e 'BooleanSort] -> Ic3 a e ()
+addPredicates ps = lift $ predicates %= nubBy (\a b -> a == b || a == neg b) . (++ ps)
 
 data Ic3Log = Ic3Log deriving ( Eq, Typeable )
 
 logIc3 :: Typeable b => b -> Bool
 logIc3 = logExactly Ic3Log
 
-ic3 :: forall e f. ( ComplementedLattice (e 'BooleanSort)
+ic3 :: forall e f. ( Heyting (e 'BooleanSort)
                    , MonadSolver e (Solver e)
                    , Show (e 'BooleanSort)
                    , Eq (e 'BooleanSort)
@@ -102,7 +103,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
         log Ic3Log $ "t: " ++ show t
         log Ic3Log $ "p: " ++ show p
         local $ do
-            bs <- enumerate (i /\ complement p)
+            bs <- enumerate (i /\ neg p)
             unless (null bs) $ throwE (Cex [head bs])
 
     bad :: Ic3 Cex e ()
@@ -117,7 +118,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
     bad' = do
         c  <- getCurrentFrame
         --n  <- getCurrentFrameNum
-        bs <- enumerate (post c /\ complement p)
+        bs <- enumerate (post c /\ neg p)
         log Ic3Log $ "about to enum: " ++ show (take 10 bs) ++ "..."
         unless (null bs) $ do
             --log Ic3Log $ "\tpost(f" ++ show n ++ "): " ++ show (post c) ++ "\n"
@@ -156,7 +157,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
         if r then do
             c  <- cube
             cs <- local $ do
-                assert (complement c)
+                assert (neg c)
                 enumerate'
             return (c : cs)
         else return []
@@ -181,7 +182,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
             let bs = mapMaybe toStaticallySorted vs :: [e 'BooleanSort]
                 is = mapMaybe toStaticallySorted vs :: [e 'IntegralSort]
 
-            a <- fmap meets . forM bs $ \v -> model (prime' s v) >>= \b -> if b == top then return v else return (complement v)
+            a <- fmap meets . forM bs $ \v -> model (prime' s v) >>= \b -> if b == top then return v else return (neg v)
             b <- fmap meets . forM is $ \v -> (v .=.) <$> model (prime' s v)
 
             return (a /\ b)
@@ -194,7 +195,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
 
     literal :: e 'BooleanSort -> e 'BooleanSort -> e 'BooleanSort
     literal a v | v == top    = a
-                | v == bottom = complement a
+                | v == bottom = neg a
                 | otherwise  = error $ "failed to determine phase of " ++ show a
 
     block :: [e 'BooleanSort] -> e 'BooleanSort -> Ic3 Cex e ()
@@ -207,7 +208,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
         c   <- getCurrentFrame
         bot <- isFirstFrame
 
-        -- if we omit the constraint (/\ complement b) we are trying to prove a stronger property (more then inductivity)
+        -- if we omit the constraint (/\ neg b) we are trying to prove a stronger property (more then inductivity)
         -- but we can't simply add the constraint without needing to add AbsRelInd from Griggio et al. TACAS14
         let q = let c' = c in prefix "A" c' /\ prefix "B" c' /\ prefix "C" c' /\ pre b
             k1 = var "k1" :: e 'IntegralSort
@@ -258,7 +259,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
         f <- getCurrentFrame
         r <- local $ assert (f /\ s) >> check
         when r $ do
-            modifyFrame (/\ complement s)
+            modifyFrame (/\ neg s)
             bot <- isFirstFrame
             unless bot $ do
                 goFrameBack
@@ -280,7 +281,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
 
         log Ic3Log $ "f" ++ show k ++ ": " ++ show c
 
-        e <- empty (c /\ complement prev) -- we already know that prev is subset of c, check the full equality to detect fixpoint
+        e <- empty (c /\ neg prev) -- we already know that prev is subset of c, check the full equality to detect fixpoint
         when (k > 0) $ do
             log Ic3Log $ "\tf" ++ show (k - 1) ++ (if e then " = " else " /= ") ++ "f" ++ show k ++ ":"
             log Ic3Log $ "\t\tf" ++ show (k - 1) ++ ": " ++ show prev
@@ -290,11 +291,11 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
         l <- isLastFrame
         unless l $ do
             n <- getNextFrame
-            ind' <- return . complement . joins . nub -- block unique
+            ind' <- return . neg . joins . nub -- block unique
                 <=< mapM (generalise c)               -- generalise
                 <=< filterM (nonEmpty . (/\ n))       -- not blocked in next
                 <=< filterM (   empty . (/\ post c))  -- not reachable in one step from current
-                 $  map complement (conjuncts c)      -- blocked in current
+                 $  map neg (conjuncts c)      -- blocked in current
             goFrameForth
             log Ic3Log $ "\tpush(f" ++ show k ++ ", f" ++ show (k + 1) ++ ", " ++ show ind' ++ ")"
             fix' c ind'
@@ -310,7 +311,7 @@ ic3 vs i t p = flip evalStateT (Ic3State (zipper [i] & fromWithin traverse) (fil
                 let cs = conjuncts c
 
                 fmap (either id (const c)) . runExceptT . forM (map meets . tail . subsequences $ cs) $ \c' -> do
-                    r <- lift . local $ assert (post (s /\ complement c') /\ c') >> check
+                    r <- lift . local $ assert (post (s /\ neg c') /\ c') >> check
                     unless r $ throwE c'
             else local $ assert (post s) >> unsatcore c
         else local $ assert (s \/ post s) >> unsatcore c
